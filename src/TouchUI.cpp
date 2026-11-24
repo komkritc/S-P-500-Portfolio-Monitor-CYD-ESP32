@@ -1,4 +1,5 @@
 #include "TouchUI.h"
+#include "DisplayUI.h"   // UI::Screen ids - the nav order is defined there, not here
 #include "config.h"
 #include <XPT2046_Touchscreen.h>
 
@@ -57,8 +58,8 @@ Act poll(int& arg) {
     sx = x; sy = y;
     zoneHeld = (y >= Cfg::NAV_Y) ? (int)((unsigned)x / 80) : -1;
     if (zoneHeld >= 4) zoneHeld = -1;
-    periodHeld = (curScreen == 3 && inPeriodBtn(x, y))   // 3 = chart screen
-                     ? (x < 109 ? 0 : x < 210 ? 1 : 2)
+    periodHeld = (curScreen == UI::SC_CHART && inPeriodBtn(x, y))   // 1D/5D/1M live on the chart screen
+                     ? periodBtnIdx(x)
                      : -1;
     if (ms - logMs > 500)
       Serial.printf("[touch] press %d,%d\n", x, y);
@@ -78,7 +79,7 @@ Act poll(int& arg) {
       Serial.printf("[touch] swipe %s (%d)\n", dx > 0 ? "right" : "left", arg);
       return A_SCREEN;
     }
-    if (abs(dy) >= Cfg::SWIPE_MIN_PX && curScreen == 1) {
+    if (abs(dy) >= Cfg::SWIPE_MIN_PX && curScreen == UI::SC_POS) {
       lastAccept = ms;
       arg = dy > 0 ? -1 : +1;   // finger up -> next page
       return A_SCROLL;
@@ -94,10 +95,12 @@ Act poll(int& arg) {
       arg = pr;
       return A_PERIOD;
     }
-    // dashboard dots
+    // The strip the page dots used to sit on: the dots are no longer drawn, so
+    // this band is split into the same four zones as the nav bar - a tap just
+    // above a nav button now does what the button under it does.
     if (y >= Cfg::DOT_Y - 6 && y <= Cfg::DOT_Y + 6) {
       for (int i = 0; i < 4; i++)
-        if (abs(sx - Cfg::DOT_X[i]) <= 8) {
+        if (sx >= Cfg::NAV_ZONE_X[i] && sx < Cfg::NAV_ZONE_X[i] + Cfg::NAV_ZONE_W[i]) {
           lastAccept = ms;
           arg = i;
           return A_SCREEN;

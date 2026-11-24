@@ -43,6 +43,20 @@ void useFont(uint8_t f) {
   }
 }
 
+// Ink box of each font (height, and how far below the cursor y the ink starts),
+// measured from the preview harness (DUMPBOXES=1 ./tests/preview/preview tests).
+// TFT_eSPI's fontHeight() is the cell height, which is not what looks centred.
+struct Ink { int h, top; };
+Ink inkOf(uint8_t f) {
+  switch (f) {
+    case F1:   return {10, 3};
+    case F2:   return {10, 3};
+    case F4:   return {18, 1};
+    case FG24: return {24, 5};
+    default:   return {13, 5};   // FG18 (Inter 18): "1D" inks 21x13, top 5 px below y
+  }
+}
+
 // ---- slot cache: draw text only when it changed -------------------------
 struct Slot {
   int16_t id, x, y, w, h;
@@ -112,7 +126,26 @@ uint8_t fitFont(const char* s, int maxW) {
   if ((int)tft.textWidth(s) <= maxW) return FG24;
   useFont(FG18);
   if ((int)tft.textWidth(s) <= maxW) return FG18;
-  return F4;
+  useFont(F4);
+  if ((int)tft.textWidth(s) <= maxW) return F4;
+  return F2;
+}
+
+// pick F2, else F1, for small text that must fit maxW
+uint8_t fit2(const char* s, int maxW) {
+  useFont(F2);
+  if ((int)tft.textWidth(s) <= maxW) return F2;
+  useFont(F1);
+  return F1;
+}
+
+// mid-size card number: FG18, else F4, else F2
+uint8_t fitCard(const char* s, int maxW) {
+  useFont(FG18);
+  if ((int)tft.textWidth(s) <= maxW) return FG18;
+  useFont(F4);
+  if ((int)tft.textWidth(s) <= maxW) return F4;
+  return F2;
 }
 
 // ---- formatting ----------------------------------------------------------
@@ -133,6 +166,17 @@ void money(char* b, size_t n, double v, bool plus = false, int dec = 2) {
   if (dec) snprintf(b, n, "%s%s.%0*llu", neg ? "-" : (plus ? "+" : ""),
                     grouped, dec, r % p);
   else snprintf(b, n, "%s%s", neg ? "-" : (plus ? "+" : ""), grouped);
+}
+
+// abbreviated money (11.23B / 45.67M / 890K) when the grouped form cannot fit
+void moneyCompact(char* b, size_t n, double v, bool plus) {
+  if (!isNum(v)) { snprintf(b, n, "--"); return; }
+  const double a = fabs(v);
+  const char* sg = v < 0 ? "-" : (plus ? "+" : "");
+  if (a >= 1e9) snprintf(b, n, "%s%.2fB", sg, a / 1e9);
+  else if (a >= 1e6) snprintf(b, n, "%s%.2fM", sg, a / 1e6);
+  else if (a >= 1e5) snprintf(b, n, "%s%.0fK", sg, a / 1e3);
+  else money(b, n, v, plus, 2);
 }
 
 char g_numBuf[6][40];  // rotating buffers for call sites needing a string
@@ -213,8 +257,48 @@ uint32_t g_lastPlot = 0;
 uint32_t g_rotMs = 0;  // last screen switch (user or rotation)
 int g_wifiBars = -1, g_hdrIconScr = -1;
 
+// settings.pages / settings.charts are the web-UI bitmasks (docs/API.md):
+//   pages:  bit0 Dashboard, bit1 Positions, bit2 Chart, bit3 Realised  (0 = all)
+//   charts: bit0 1D, bit1 5D, bit2 1M                                   (0 = all)
+// They steer only the automatic rotation; touching a nav zone or a period
+// button always works, so a mask can never lock the user out of a screen.
+// The bit of a page is fixed by the web UI, NOT by the LCD nav order
+// (on the LCD the order is Dashboard, Chart, Positions, Realised).
+int pagesBit(int s) {
+  switch (s) {
+    case UI::SC_DASH:  return 0;
+    case UI::SC_POS:   return 1;
+    case UI::SC_CHART: return 2;
+    default:           return 3;   // UI::SC_REAL
+  }
+}
+
+int pagesMask()  { const uint8_t p = g_app.settings.pages;       return p ? p : 15; }
+int chartsMask() { const uint8_t c = g_app.settings.charts & 7u; return c ? c : 7; }
+
+int firstEnabledRange(int from) {
+  const int cm = chartsMask();
+  for (int k = 0; k < RANGE_COUNT; k++) { const int r = (from + k) % RANGE_COUNT; if (cm & (1 << r)) return r; }
+  return from;
+}
+
+// rotation calls this when it ENTERS the chart screen: step to the next
+// enabled range, so the rotation cycles 1D -> 5D -> 1M like the SmallTV does
+void advanceRange() {
+  const int cm = chartsMask();
+  if (g_range < 0) g_range = firstEnabledRange(g_app.settings.defaultRange);
+  else {
+    for (int k = 1; k <= RANGE_COUNT; k++) {
+      const int r = (g_range + k) % RANGE_COUNT;
+      if (cm & (1 << r)) { g_range = r; break; }
+    }
+  }
+  market::setViewRange((uint8_t)g_range);  // the visible chart gets refresh priority
+  g_lastPlot = 0;
+}
+
 int curRange() {
-  if (g_range < 0) g_range = g_app.settings.defaultRange;
+  if (g_range < 0) g_range = firstEnabledRange(g_app.settings.defaultRange);
   return g_range;
 }
 
@@ -245,7 +329,7 @@ void drawWifi() {
 void drawHeader() {
   tft.fillRect(0, 0, Cfg::SCR_W, Cfg::HEADER_H, Cfg::HEADER);
   tft.drawFastHLine(0, Cfg::HEADER_H, Cfg::SCR_W, Cfg::BORDER);
-  iconScreen(g_curScreen, 10, 10, Cfg::CYAN);
+  iconScreen(g_curScreen, Cfg::HDR_ICON_X, Cfg::HDR_ICON_Y, Cfg::CYAN);
   g_hdrIconScr = g_curScreen;
   drawWifi();
 }
@@ -254,7 +338,7 @@ void drawNav() {
   tft.fillRoundRect(0, Cfg::NAV_Y, Cfg::SCR_W, Cfg::NAV_H, 10, Cfg::HEADER);
   tft.fillRect(0, Cfg::NAV_Y, Cfg::SCR_W, 10, Cfg::HEADER);  // square top edge
   tft.drawFastHLine(0, Cfg::NAV_Y - 1, Cfg::SCR_W, Cfg::BORDER);
-  static const char* names[4] = {"Dashboard", "Positions", "Realised", "Chart"};
+  static const char* names[4] = {"Dashboard", "Chart", "Positions", "Realised"};
   const int held = Touch::pressZone();
   useFont(F2);
   for (int i = 0; i < 4; i++) {
@@ -271,21 +355,17 @@ void drawNav() {
     const uint16_t col = (act || held == i) ? Cfg::TEXT : Cfg::SECTXT;
     const uint16_t ic = (act || held == i) ? Cfg::TEXT : Cfg::MUTED;
     if (i == 0) iconHome(zx + zw / 2 - 7, Cfg::NAV_Y + 7, ic);
-    else if (i == 1) iconRows(zx + zw / 2 - 7, Cfg::NAV_Y + 7, ic);
-    else if (i == 2) iconFlow(zx + zw / 2 - 7, Cfg::NAV_Y + 7, ic);
-    else iconTrend(zx + zw / 2 - 7, Cfg::NAV_Y + 7, ic);
+    else if (i == 1) iconTrend(zx + zw / 2 - 7, Cfg::NAV_Y + 7, ic);
+    else if (i == 2) iconRows(zx + zw / 2 - 7, Cfg::NAV_Y + 7, ic);
+    else iconFlow(zx + zw / 2 - 7, Cfg::NAV_Y + 7, ic);
     const int tw = (int)tft.textWidth(names[i]);
     tft.setTextColor(col, Cfg::HEADER);
     tft.drawString(names[i], zx + (zw - tw) / 2, Cfg::NAV_Y + 22, 2);
   }
 }
 
-void drawDots() {
-  for (int i = 0; i < 4; i++) {
-    if (i == g_curScreen) tft.fillCircle(Cfg::DOT_X[i], Cfg::DOT_Y, 3, Cfg::CYAN);
-    else tft.drawCircle(Cfg::DOT_X[i], Cfg::DOT_Y, 3, Cfg::BORDER);
-  }
-}
+// The page-indicator dots were dropped from the UI; the strip at DOT_Y is still
+// a touch target (see Touch::hit), so tapping there still switches pages.
 
 // ---- status badge ---------------------------------------------------------
 uint16_t badgeColor(MarketStatus s, uint16_t* bg) {
@@ -335,22 +415,20 @@ void drawDashStatics() {
                     10, Cfg::CARD);
   tft.drawRoundRect(Cfg::DASH_RX, Cfg::DASH_RY, Cfg::DASH_RW, Cfg::DASH_RH,
                     10, Cfg::BORDER);
-  useFont(F4);
-  tft.setTextColor(Cfg::CYAN, Cfg::CARD);
-  tft.drawString("PORTFOLIO NAV", Cfg::DASH_LX + 12, 47, 4);
   useFont(F2);
-  tft.setTextColor(Cfg::SECTXT, Cfg::CARD);
-  tft.drawString("INVESTED (THB)", Cfg::DASH_LX + 12, 150, 2);
-  tft.drawString("POSITIONS", Cfg::DASH_LX + 104, 150, 2);
   tft.setTextColor(Cfg::CYAN, Cfg::CARD);
-  tft.drawString("S&P 500", Cfg::DASH_RX + 10, 45, 4);
-  tft.setTextColor(Cfg::SECTXT, Cfg::CARD);
-  tft.drawString("(^GSPC)", Cfg::DASH_RX + 10, 64, 2);
-  tft.drawFastHLine(Cfg::DASH_RX + 10, 136, Cfg::DASH_RW - 20, Cfg::BORDER);
-  const char* rows[4] = {"Open", "High", "Low", "Prev Close"};
+  tft.drawString("PORTFOLIO NAV", Cfg::DASH_LX + 12, 46, 2);
+  tft.drawString("INVESTED", Cfg::DASH_LX + 12, 150, 2);
+  tft.drawString("POSITIONS", Cfg::DASH_LX + Cfg::DASH_LW - 12 -
+                                             (int)tft.textWidth("POSITIONS"),
+                 150, 2);
+  tft.setTextColor(Cfg::CYAN, Cfg::CARD);
+  tft.drawString("S&P 500", Cfg::DASH_RX + 10, 45, 2);
+  tft.drawFastHLine(Cfg::DASH_RX + 10, 134, Cfg::DASH_RW - 20, Cfg::BORDER);
+  const char* rows[4] = {"Open", "High", "Low", "Prev"};
   for (int i = 0; i < 4; i++) {
     tft.setTextColor(Cfg::SECTXT, Cfg::CARD);
-    tft.drawString(rows[i], Cfg::DASH_RX + 10, 140 + i * 14, 2);
+    tft.drawString(rows[i], Cfg::DASH_RX + 10, Cfg::DASH_ROW_Y0 + i * Cfg::DASH_ROW_DY, 2);
   }
 }
 
@@ -383,66 +461,103 @@ void drawDashDynamic() {
     tft.drawString("Unrealised P/L", Cfg::DASH_LX + 22, 110, 2);
     if (ok) {
       char pc[24];
+      // the % sits right-aligned on the same line as the label: drop decimals
+      // before it would run into the label ink (+12.36% -> +12.4% -> +12%)
+      const int labR = Cfg::DASH_LX + 22 + (int)tft.textWidth("Unrealised P/L");
+      const int budget = Cfg::DASH_LX + 158 - labR - 6;
       snprintf(pc, sizeof(pc), "%+.2f%%", sm.retPct);
+      if ((int)tft.textWidth(pc) > budget) snprintf(pc, sizeof(pc), "%+.1f%%", sm.retPct);
+      if ((int)tft.textWidth(pc) > budget) snprintf(pc, sizeof(pc), "%+.0f%%", sm.retPct);
       tft.setTextColor(c, cbg);
       tft.drawString(pc, Cfg::DASH_LX + 158 - (int)tft.textWidth(pc), 110, 2);
       useFont(FG18);
       tft.setTextColor(c, cbg);
-      tft.drawString(numBuf(3, sm.pl, true), Cfg::DASH_LX + 22, 140);  // GFX baseline
+      const char* pls = numBuf(3, sm.pl, true);
+      uint8_t pf = FG18;
+      if ((int)tft.textWidth(pls) > 132) {
+        useFont(F4);
+        pf = F4;
+        if ((int)tft.textWidth(pls) > 132) pf = F2;
+      }
+      useFont(pf);
+      tft.drawString(pls, Cfg::DASH_LX + 22, pf >= FG18 ? 124 : 128);  // smooth y = cell top
     } else {
       tft.setTextColor(Cfg::MUTED, cbg);
       tft.drawString("waiting for quotes", Cfg::DASH_LX + 22, 130, 2);
     }
   }
 
-  txtFmt(S_INV, Cfg::DASH_LX + 12, 162, F2, Cfg::TEXT, Cfg::CARD, false,
+  // INVESTED / POSITIONS values: their y sits 18 px under the label cursor,
+  // because F2 "600,000.00" inks a comma that descends into the value's row.
+  txtFmt(S_INV, Cfg::DASH_LX + 12, 168, F2, Cfg::TEXT, Cfg::CARD, false,
          "%s", numBuf(4, sm.invested));
-  txtFmt(S_CNT, Cfg::DASH_LX + 104, 162, F2, Cfg::TEXT, Cfg::CARD, false,
-         "%u", (unsigned)sm.count);
+  txtFmt(S_CNT, Cfg::DASH_LX + Cfg::DASH_LW - 12, 168, F2, Cfg::TEXT, Cfg::CARD,
+         true, "%u", (unsigned)sm.count);
 
-  // S&P card
+  // S&P card. The ^GSPC line was dropped, so the price block (price, change,
+  // quote time) is spread through the card instead of hugging the divider:
+  // label ink ends 58, price 67-83 (Inter 18: the card is only 118 px wide, so
+  // Inter 24 cannot fit a 5-digit index), change 95-105, time 114-126,
+  // divider 136, then the four OHLC rows at DASH_ROW_Y0/DY (ink 141..190,
+  // 4 px clear of the card border at 194).
   if (qv.valid) {
-    txtFmt(S_PX, Cfg::DASH_RX + 10, 82, FG18, Cfg::TEXT, Cfg::CARD, false,
-           "%s", numBuf(0, qv.last));
+    char pxS[40];
+    money(pxS, sizeof(pxS), qv.last);
+    txtSlot(S_PX, Cfg::DASH_RX + 10, 62, fitFont(pxS, Cfg::DASH_RW - 20),
+            Cfg::TEXT, Cfg::CARD, false, pxS);
     const uint16_t cc = qv.change >= 0 ? Cfg::GREEN : Cfg::RED;
+    char chs[60];
     if (isNum(qv.change))
-      txtFmt(S_CHG, Cfg::DASH_RX + 10, 112, F2, cc, Cfg::CARD, false,
-             "%s (%+.2f%%)", numBuf(1, qv.change, true), qv.changePct);
+      snprintf(chs, sizeof(chs), "%s (%+.2f%%)", numBuf(1, qv.change, true),
+               qv.changePct);
     else
-      txtFmt(S_CHG, Cfg::DASH_RX + 10, 112, F2, Cfg::MUTED, Cfg::CARD, false,
-             "%s", numBuf(1, qv.last));
+      snprintf(chs, sizeof(chs), "%s", numBuf(1, qv.last));
+    uint8_t cf = fit2(chs, Cfg::DASH_RW - 20);
+    if (cf == F1 && (int)tft.textWidth(chs) > Cfg::DASH_RW - 20 &&
+        isNum(qv.change)) {
+      char cc2[24];
+      moneyCompact(cc2, sizeof(cc2), qv.change, true);
+      snprintf(chs, sizeof(chs), "%s (%+.1f%%)", cc2, qv.changePct);
+      cf = F1;
+    }
+    txtSlot(S_CHG, Cfg::DASH_RX + 10, 92, cf, cc, Cfg::CARD, false, chs);
     char est[40];
     if (qv.marketTime)
       formatQuoteTime(est, sizeof(est), qv.marketTime, g_app.settings.tzMode,
-                      g_app.settings.localOffsetMin);
+                      g_app.settings.localOffsetMin, false);
     else
       est[0] = 0;
-    txtSlot(S_EST, Cfg::DASH_RX + 10, 124, F2, Cfg::MUTED, Cfg::CARD, false,
+    txtSlot(S_EST, Cfg::DASH_RX + 10, 113, F2, Cfg::MUTED, Cfg::CARD, false,
             est);
     char nb[20];
     const struct { double v; int id; } rv[4] = {
         {qv.open, S_RO}, {qv.high, S_RH}, {qv.low, S_RL}, {qv.prevClose, S_RP}};
     for (int i = 0; i < 4; i++) {
       if (!isNum(rv[i].v))
-        txtSlot(rv[i].id, Cfg::DASH_RX + Cfg::DASH_RW - 10, 140 + i * 14, F2,
+        txtSlot(rv[i].id, Cfg::DASH_RX + Cfg::DASH_RW - 10, Cfg::DASH_ROW_Y0 + i * Cfg::DASH_ROW_DY, F2,
                 Cfg::SECTXT, Cfg::CARD, true, "--");
       else {
         money(nb, sizeof(nb), rv[i].v);
-        txtSlot(rv[i].id, Cfg::DASH_RX + Cfg::DASH_RW - 10, 140 + i * 14, F2,
+        uint8_t f = fit2(nb, 56);
+        if (f == F1 && (int)tft.textWidth(nb) > 56) {
+          moneyCompact(nb, sizeof(nb), rv[i].v, false);
+          f = F1;
+        }
+        txtSlot(rv[i].id, Cfg::DASH_RX + Cfg::DASH_RW - 10, Cfg::DASH_ROW_Y0 + i * Cfg::DASH_ROW_DY, f,
                 Cfg::TEXT, Cfg::CARD, true, nb);
       }
     }
   } else {
-    txtSlot(S_PX, Cfg::DASH_RX + 10, 82, FG18, Cfg::MUTED, Cfg::CARD, false,
+    txtSlot(S_PX, Cfg::DASH_RX + 10, 62, FG18, Cfg::MUTED, Cfg::CARD, false,
             "--");
-    txtSlot(S_CHG, Cfg::DASH_RX + 10, 112, F2, Cfg::MUTED, Cfg::CARD, false,
+    txtSlot(S_CHG, Cfg::DASH_RX + 10, 92, F2, Cfg::MUTED, Cfg::CARD, false,
             "fetching...");
-    txtSlot(S_EST, Cfg::DASH_RX + 10, 124, F2, Cfg::CARD, Cfg::CARD, false, "");
+    txtSlot(S_EST, Cfg::DASH_RX + 10, 113, F2, Cfg::CARD, Cfg::CARD, false, "");
     for (int i = 0; i < 4; i++)
-      txtSlot(S_RO + i, Cfg::DASH_RX + Cfg::DASH_RW - 10, 140 + i * 14, F2,
+      txtSlot(S_RO + i, Cfg::DASH_RX + Cfg::DASH_RW - 10, Cfg::DASH_ROW_Y0 + i * Cfg::DASH_ROW_DY, F2,
               Cfg::CARD, Cfg::CARD, true, "");
   }
-  drawBadge(Cfg::DASH_RX + Cfg::DASH_RW - 10, 45, qv.status, Cfg::CARD);
+  drawBadge(Cfg::DASH_LX + Cfg::DASH_LW - 10, 45, qv.status, Cfg::CARD);
 }
 
 // ---- positions -----------------------------------------------------------
@@ -455,7 +570,7 @@ void drawPosStatics() {
   for (int i = 0; i < 3; i++)
     tft.drawString(lbl[i], rx[i] - (int)tft.textWidth(lbl[i]),
                    Cfg::TBL_HY + 8, 2);
-  tft.drawString("RETURN", Cfg::COL_RET_R - (int)tft.textWidth("RETURN"),
+  tft.drawString("RET", Cfg::COL_RET_R - (int)tft.textWidth("RET"),
                  Cfg::TBL_HY + 8, 2);
   tft.drawFastHLine(Cfg::TBL_X, Cfg::TBL_HY + Cfg::TBL_HH - 1, Cfg::TBL_W,
                     Cfg::BORDER);
@@ -501,18 +616,42 @@ void drawPosDynamic() {
       const PositionResult& rr = g_app.results[idx];
       const bool hasQ = isNum(rr.price);
       const uint16_t pc = rr.pl >= 0 ? Cfg::GREEN : Cfg::RED;
-      txtFmt(S_ROW + r * 5 + 0, Cfg::TBL_X + 8, y, F4, Cfg::TEXT, Cfg::BG,
-             false, "%.12s", p.symbol);
-      txtFmt(S_ROW + r * 5 + 1, Cfg::COL_QTY_R, y + 2, F2,
-             hasQ ? Cfg::TEXT : Cfg::SECTXT, Cfg::BG, true, "%.3f", p.qty);
-      txtFmt(S_ROW + r * 5 + 2, Cfg::COL_NAV_R, y + 2, F2,
-             hasQ ? Cfg::TEXT : Cfg::MUTED, Cfg::BG, true, "%s",
-             numBuf(0, rr.nav));
-      txtFmt(S_ROW + r * 5 + 3, Cfg::COL_PL_R, y + 2, F2,
-             hasQ ? pc : Cfg::MUTED, Cfg::BG, true, "%s",
-             numBuf(1, rr.pl, true));
+      txtFmt(S_ROW + r * 5 + 0, Cfg::TBL_X + 8, y, F2, Cfg::TEXT, Cfg::BG,
+             false, "%.10s", p.symbol);
+      char cb[40];
+      snprintf(cb, sizeof(cb), p.qty < 1000 ? "%.2f" : "%.0f", p.qty);
+      {
+        uint8_t f = fit2(cb, 54);
+        if (f == F1 && (int)tft.textWidth(cb) > 54) {
+          moneyCompact(cb, 40, p.qty, false);
+          f = F1;
+        }
+        txtSlot(S_ROW + r * 5 + 1, Cfg::COL_QTY_R, y + 2, f,
+                hasQ ? Cfg::TEXT : Cfg::SECTXT, Cfg::BG, true, cb);
+      }
+      snprintf(cb, sizeof(cb), "%s", numBuf(0, rr.nav, false, 0));
+      {
+        uint8_t f = fit2(cb, 60);
+        if (f == F1 && (int)tft.textWidth(cb) > 60) {
+          moneyCompact(cb, 40, rr.nav, false);
+          f = F1;
+        }
+        txtSlot(S_ROW + r * 5 + 2, Cfg::COL_NAV_R, y + 2, f,
+                hasQ ? Cfg::TEXT : Cfg::MUTED, Cfg::BG, true, cb);
+      }
+      snprintf(cb, sizeof(cb), "%s", numBuf(1, rr.pl, true, 0));
+      {
+        uint8_t f = fit2(cb, 56);
+        if (f == F1 && (int)tft.textWidth(cb) > 56) {
+          moneyCompact(cb, 40, rr.pl, true);
+          f = F1;
+        }
+        txtSlot(S_ROW + r * 5 + 3, Cfg::COL_PL_R, y + 2, f,
+                hasQ ? pc : Cfg::MUTED, Cfg::BG, true, cb);
+      }
       txtFmt(S_ROW + r * 5 + 4, Cfg::COL_RET_R, y + 2, F2,
-             hasQ ? pc : Cfg::MUTED, Cfg::BG, true, "%+.2f%%", rr.retPct);
+             hasQ ? pc : Cfg::MUTED, Cfg::BG, true,
+             fabs(rr.retPct) >= 100 ? "%+.0f%%" : "%+.1f%%", rr.retPct);
     }
   }
   const PortfolioSummary& sm = g_app.summary;
@@ -575,10 +714,10 @@ void drawRealDynamic() {
             Cfg::CARD, false, "--");
     txtSlot(S_RLTV, Cfg::R_C2_X + 9, Cfg::R_C2_Y + 22, F4, Cfg::MUTED,
             Cfg::CARD, false, "--");
-    txtSlot(S_RSALE, Cfg::R_C3_X + 9, Cfg::R_C3_Y + 15, F4,
-            Cfg::TEXT, Cfg::CARD, false, "0");
-    txtSlot(S_RREV, Cfg::R_C4_X + 9, Cfg::R_C4_Y + 15, F4,
-            Cfg::TEXT, Cfg::CARD, false, "0");
+    txtSlot(S_RSALE, Cfg::R_C3_X + Cfg::R_C3_W - 9, Cfg::R_C3_Y + 5, F4,
+            Cfg::TEXT, Cfg::CARD, true, "0");
+    txtSlot(S_RREV, Cfg::R_C4_X + Cfg::R_C4_W - 9, Cfg::R_C4_Y + 5, F4,
+            Cfg::TEXT, Cfg::CARD, true, "0");
     txtSlot(S_RLS1, 10, Cfg::R_LAST_Y + 1, F2, Cfg::MUTED, Cfg::BG, false,
             "no sales recorded");
     txtSlot(S_RLS2, 310, Cfg::R_LAST_Y + 1, F2, Cfg::BG, Cfg::BG, true, "");
@@ -592,20 +731,25 @@ void drawRealDynamic() {
           s.pl >= 0 ? Cfg::GREEN : Cfg::RED, Cfg::BG, false, b);
 
   const double ypl = yearPl(s, cy);
-  txtFmt(S_RYRV, Cfg::R_C1_X + 9, Cfg::R_C1_Y + 22, F4,
-         isNum(ypl) ? (ypl >= 0 ? Cfg::GREEN : Cfg::RED) : Cfg::MUTED,
-         Cfg::CARD, false, "%s", numBuf(0, ypl, true));
+  {
+    const char* vs = numBuf(0, ypl, true);
+    txtSlot(S_RYRV, Cfg::R_C1_X + 9, Cfg::R_C1_Y + 22,
+            fitCard(vs, Cfg::R_C1_W - 18),
+            isNum(ypl) ? (ypl >= 0 ? Cfg::GREEN : Cfg::RED) : Cfg::MUTED,
+            Cfg::CARD, false, vs);
+    // lifetime = unrealised + realised (computed once in appRecompute)
+    const double lt = g_app.summary.lifetimePl;
+    const char* ls = numBuf(1, lt, true);
+    txtSlot(S_RLTV, Cfg::R_C2_X + 9, Cfg::R_C2_Y + 22,
+            fitCard(ls, Cfg::R_C2_W - 18),
+            isNum(lt) ? (lt >= 0 ? Cfg::GREEN : Cfg::RED) : Cfg::MUTED,
+            Cfg::CARD, false, ls);
+  }
 
-  // lifetime = unrealised + realised (computed once in appRecompute)
-  const double lt = g_app.summary.lifetimePl;
-  txtFmt(S_RLTV, Cfg::R_C2_X + 9, Cfg::R_C2_Y + 22, F4,
-         isNum(lt) ? (lt >= 0 ? Cfg::GREEN : Cfg::RED) : Cfg::MUTED,
-         Cfg::CARD, false, "%s", numBuf(1, lt, true));
-
-  txtFmt(S_RSALE, Cfg::R_C3_X + 9, Cfg::R_C3_Y + 15, F4, Cfg::TEXT, Cfg::CARD,
-         false, "%u", (unsigned)s.count);
-  txtFmt(S_RREV, Cfg::R_C4_X + 9, Cfg::R_C4_Y + 15, F4,
-         s.reversed ? Cfg::YELLOW : Cfg::TEXT, Cfg::CARD, false, "%u",
+  txtFmt(S_RSALE, Cfg::R_C3_X + Cfg::R_C3_W - 9, Cfg::R_C3_Y + 5, F4, Cfg::TEXT,
+         Cfg::CARD, true, "%u", (unsigned)s.count);
+  txtFmt(S_RREV, Cfg::R_C4_X + Cfg::R_C4_W - 9, Cfg::R_C4_Y + 5, F4,
+         s.reversed ? Cfg::YELLOW : Cfg::TEXT, Cfg::CARD, true, "%u",
          (unsigned)s.reversed);
 
   if (s.hasLast) {
@@ -614,9 +758,9 @@ void drawRealDynamic() {
     txtSlot(S_RLS1, 10, Cfg::R_LAST_Y + 1, F2, Cfg::MUTED, Cfg::BG, false, lab);
     dateText(b, sizeof(b), s.lastDate);
     txtSlot(S_RLS2, 310, Cfg::R_LAST_Y + 1, F2, Cfg::MUTED, Cfg::BG, true, b);
-    txtFmt(S_RLS3, 10, Cfg::R_LAST_Y + 13, F4, Cfg::TEXT, Cfg::BG, false,
+    txtFmt(S_RLS3, 10, Cfg::R_LAST_Y + 13, F2, Cfg::TEXT, Cfg::BG, false,
            "%.12s", s.lastSymbol);
-    txtFmt(S_RLS4, 310, Cfg::R_LAST_Y + 13, F4,
+    txtFmt(S_RLS4, 310, Cfg::R_LAST_Y + 13, F2,
            s.lastRealised >= 0 ? Cfg::GREEN : Cfg::RED, Cfg::BG, true, "%s",
            numBuf(2, s.lastRealised, true));
   }
@@ -625,10 +769,20 @@ void drawRealDynamic() {
 // ---- chart ---------------------------------------------------------------
 char g_pbtnNames[3][8] = {"1D", "5D", "1M"};
 
+// the 1D / 5D / 1M labels: Inter 18 (a size down from the old font 4), font 4
+// then font 2 if a label is ever too wide for its card
+uint8_t fitBtn(const char* s, int maxW) {
+  useFont(FG18);
+  if ((int)tft.textWidth(s) <= maxW) return FG18;
+  useFont(F4);
+  if ((int)tft.textWidth(s) <= maxW) return F4;
+  useFont(F2);
+  return F2;
+}
+
 void drawPeriodButtons() {
   const int act = curRange();
   const int held = Touch::pressPeriod();
-  useFont(F4);
   for (int i = 0; i < 3; i++) {
     const int x = Cfg::PBTN_X + i * (Cfg::PBTN_W + 1);
     const bool a = act == i;
@@ -637,10 +791,13 @@ void drawPeriodButtons() {
     tft.fillRoundRect(x, Cfg::PBTN_Y, Cfg::PBTN_W, Cfg::PBTN_H, 8, fill);
     tft.drawRoundRect(x, Cfg::PBTN_Y, Cfg::PBTN_W, Cfg::PBTN_H, 8,
                       a ? Cfg::CYAN : Cfg::BORDER);
+    const uint8_t f = fitBtn(g_pbtnNames[i], Cfg::PBTN_W - 14);
+    useFont(f);
+    const Ink K = inkOf(f);
     const int tw = (int)tft.textWidth(g_pbtnNames[i]);
+    const int ty = Cfg::PBTN_Y + (Cfg::PBTN_H - K.h) / 2 - K.top;
     tft.setTextColor(a || held == i ? Cfg::TEXT : Cfg::SECTXT, fill);
-    tft.drawString(g_pbtnNames[i], x + (Cfg::PBTN_W - tw) / 2,
-                   Cfg::PBTN_Y + (Cfg::PBTN_H - 16) / 2, 4);
+    tft.drawString(g_pbtnNames[i], x + (Cfg::PBTN_W - tw) / 2, ty, f);
   }
 }
 
@@ -679,7 +836,7 @@ void drawPlot() {
     money(lb, sizeof(lb), mn + (mx - mn) * i / 4, false, dec);
     const int w = (int)tft.textWidth(lb);
     tft.setTextColor(Cfg::MUTED, Cfg::BG);
-    tft.drawString(lb, Cfg::PLOT_X - 3 - w, y - 4, 1);
+    tft.drawString(lb, Cfg::PLOT_X - 3 - w, y - 4 - (i == 0 ? 2 : 0), 1);
   }
 
   // x mapping per period + labels
@@ -736,7 +893,13 @@ void drawPlot() {
     tft.drawString(lab[k], lx, Cfg::XLABEL_Y, 1);
   }
 
-  const uint16_t col = c.v[n - 1] >= c.v[0] ? Cfg::GREEN : Cfg::RED;
+  // Line + fill colour follows the sign of the period change, the same number
+  // the header shows: 1D = last vs the previous close, 5D / 1M = last vs the
+  // first bar (Chart.base is only set for 1D; computeChartStats falls back to
+  // the first point). Green when flat or up, red when down.
+  const ChartStats& st = g_app.chartStats[r];
+  const bool up = isNum(st.change) ? (st.change >= 0) : (c.v[n - 1] >= c.v[0]);
+  const uint16_t col = up ? Cfg::GREEN : Cfg::RED;
   const uint16_t dim = blend565(col, Cfg::BG, 46);
   int16_t px0 = -1, py0 = 0;
   for (int i = 0; i < n; i++) {
@@ -764,10 +927,26 @@ uint32_t plotSig() {
 
 // page rotation skips screens that have nothing to show (matches the
 // SmallTV ViewSchedule rule: the realised page only exists once a sale stands)
+// and screens the "LCD pages to show" checkboxes turned off (settings.pages)
 bool viewEnabled(int s) {
+  if (!(pagesMask() & (1 << pagesBit(s)))) return false;
   if (s == UI::SC_POS) return g_app.posCount > 0;
   if (s == UI::SC_REAL) return g_app.realised.valid && g_app.realised.count > 0;
   return true;
+}
+
+// header title on every page: Inter 18 - a size down from font 4, so it cannot
+// crowd the page icon on its left or the clock on its right; font 2 is the
+// last-resort shrink for a long title (e.g. "Positions (12)").
+void drawHeaderTitle(const char* s) {
+  useFont(FG18);
+  uint8_t f = FG18;
+  const Slot* t = slotById(S_TIME);              // the clock is drawn just before this
+  const int budget = (t ? (int)t->x : 206) - 6 - Cfg::HDR_TITLE_X;
+  if ((int)tft.textWidth(s) > budget) { useFont(F2); f = F2; }
+  const Ink K = inkOf(f);
+  const int ty = (Cfg::HEADER_H - K.h) / 2 - K.top;
+  txtSlot(S_TITLE, Cfg::HDR_TITLE_X, ty, f, Cfg::TEXT, Cfg::HEADER, false, s);
 }
 
 }  // namespace
@@ -779,8 +958,7 @@ void begin() {
   drawDashStatics();
   drawHeader();
   drawNav();
-  drawDots();
-  if (g_range < 0) g_range = g_app.settings.defaultRange;
+  if (g_range < 0) g_range = firstEnabledRange(g_app.settings.defaultRange);
 }
 
 void bootBanner(int pct, const char* msg) {
@@ -815,7 +993,6 @@ void setScreen(int s) {
   else if (s == SC_REAL) drawRealStatics();
   else drawPeriodButtons();
   drawHeader();
-  drawDots();
   drawNav();
 }
 
@@ -832,7 +1009,6 @@ void invalidate() {
   else if (g_curScreen == SC_REAL) drawRealStatics();
   else drawPeriodButtons();
   drawHeader();
-  drawDots();
   drawNav();
 }
 
@@ -892,7 +1068,7 @@ void update() {
     g_rotMs = ms;
     for (int k = 1; k < SC_COUNT; k++) {
       const int t = (g_curScreen + k) % SC_COUNT;
-      if (viewEnabled(t)) { setScreen(t); break; }
+      if (viewEnabled(t)) { if (t == SC_CHART) advanceRange(); setScreen(t); break; }
     }
   }
 
@@ -912,45 +1088,53 @@ void update() {
   } else {
     snprintf(lt, sizeof(lt), "--:--");
   }
-  txtSlot(S_TIME, 284, 8, F4, Cfg::TEXT, Cfg::HEADER, true, lt);
+  txtSlot(S_TIME, Cfg::HDR_TIME_X, 8, F2, Cfg::TEXT, Cfg::HEADER, true, lt);
 
   switch (scr) {
     case SC_DASH:
-      txtSlot(S_TITLE, 30, 8, F4, Cfg::TEXT, Cfg::HEADER, false,
-              "S&P 500 Portfolio");
+      drawHeaderTitle("S&P 500");
       drawDashDynamic();
       break;
     case SC_POS: {
       char t[24];
       snprintf(t, sizeof(t), "Positions (%u)", (unsigned)g_app.posCount);
-      txtSlot(S_TITLE, 30, 8, F4, Cfg::TEXT, Cfg::HEADER, false, t);
+      drawHeaderTitle(t);
       drawPosDynamic();
       break;
     }
     case SC_REAL:
-      txtSlot(S_TITLE, 30, 8, F4, Cfg::TEXT, Cfg::HEADER, false,
-              "Realised P/L");
+      drawHeaderTitle("Realised P/L");
       drawRealDynamic();
       break;
     default: {
-      txtSlot(S_TITLE, 30, 8, F4, Cfg::TEXT, Cfg::HEADER, false,
-              "Market Chart");
+      drawHeaderTitle("Market Chart");
       const QuoteView& qv = g_app.quote;
       if (qv.valid) {
         txtFmt(S_CPX, 7, Cfg::MK_Y, FG18, Cfg::TEXT, Cfg::BG, false, "%s",
                numBuf(0, qv.last));
         useFont(FG18);
         const int pw = (int)tft.textWidth(numBuf(0, qv.last));
-        if (isNum(qv.change))
-          txtFmt(S_CCHG, 7 + pw + 12, Cfg::MK_Y + 6, F4,
-                 qv.change >= 0 ? Cfg::GREEN : Cfg::RED, Cfg::BG, false,
-                 "%s (%+.2f%%)", numBuf(1, qv.change, true), qv.changePct);
-        else
-          txtSlot(S_CCHG, 7 + pw + 12, Cfg::MK_Y + 6, F4, Cfg::MUTED, Cfg::BG,
+        if (isNum(qv.change)) {
+          const int cx = 7 + pw + 12;
+          const int budget = Cfg::SCR_W - 60 - cx;  // leave room for the badge
+          char cs[70];
+          snprintf(cs, sizeof(cs), "%s (%+.2f%%)", numBuf(1, qv.change, true),
+                   qv.changePct);
+          uint8_t f = fit2(cs, budget);
+          if (f == F1 && (int)tft.textWidth(cs) > budget) {
+            char cc2[24];
+            moneyCompact(cc2, sizeof(cc2), qv.change, true);
+            snprintf(cs, sizeof(cs), "%s %+.1f%%", cc2, qv.changePct);
+            f = F1;
+          }
+          txtSlot(S_CCHG, cx, Cfg::MK_Y + 8, f,
+                  qv.change >= 0 ? Cfg::GREEN : Cfg::RED, Cfg::BG, false, cs);
+        } else
+          txtSlot(S_CCHG, 7 + pw + 12, Cfg::MK_Y + 8, F2, Cfg::MUTED, Cfg::BG,
                   false, "");
       } else {
         txtSlot(S_CPX, 7, Cfg::MK_Y, FG18, Cfg::MUTED, Cfg::BG, false, "--");
-        txtSlot(S_CCHG, 7 + 60, Cfg::MK_Y + 6, F4, Cfg::MUTED, Cfg::BG, false,
+        txtSlot(S_CCHG, 7 + 60, Cfg::MK_Y + 8, F2, Cfg::MUTED, Cfg::BG, false,
                 "waiting for data");
       }
       drawBadge(Cfg::SCR_W - 5, Cfg::MK_Y + 4, qv.status, Cfg::BG);

@@ -1,6 +1,6 @@
 # HTTP API
 
-Base URL: `http://<device-ip>/` or `http://sp500.local/`. All API bodies are JSON (`Content-Type: application/json`).
+Base URL: `http://<device-ip>/` or `http://sp500-32.local/`. All API bodies are JSON (`Content-Type: application/json`).
 All responses are compact JSON. Money is THB (portfolio) or index points (S&P 500); the two are never mixed.
 
 Conventions
@@ -17,12 +17,12 @@ Conventions
 
 ### GET /api/status
 ```json
-{"fw":"1.1.0","uptime":3600,
+{"fw":"1.1.2","uptime":3600,
  "time":{"epoch":1795210554,"synced":true},
  "heap":{"free":21000,"maxBlock":17000,"frag":12},
  "chip":{"id":"A1B2C3","cpuMHz":160,"flashKB":4096,"sketchKB":512,"freeSketchKB":1019,"sdk":"3.1.2"},
  "fs":{"ok":true,"totalKB":1024,"usedKB":16},
- "wifi":{"mode":"sta","connected":true,"ssid":"home","ip":"192.168.1.50","rssi":-61,"mdns":"sp500.local"},
+ "wifi":{"mode":"sta","connected":true,"ssid":"home","ip":"192.168.1.50","rssi":-61,"mdns":"sp500-32.local"},
  "data":{"lastMarketOk":1795210560,"lastError":"HTTP 429","lastErrorEpoch":1795210000,"quoteStale":false,"portfolioStale":false},
  "ota":{"active":false}}
 ```
@@ -72,7 +72,7 @@ Conventions
 
 ### GET /api/wifi/status
 ```json
-{"mode":"sta","state":"connected","ssid":"home","ip":"192.168.1.50","rssi":-61,"mdns":"sp500.local",
+{"mode":"sta","state":"connected","ssid":"home","ip":"192.168.1.50","rssi":-61,"mdns":"sp500-32.local",
  "saved":true,"apSsid":"","apIp":"",
  "connect":{"state":"idle","ssid":"","error":""},
  "scan":{"state":"idle","ageSec":12,"count":7}}
@@ -93,7 +93,7 @@ While `scanning` the previous list (possibly empty) is returned. Poll every ~1.5
  "limits":{"portfolioRefreshS":[15,3600],"quoteRefreshS":[15,3600],"chartRefreshS":[60,3600],
            "pageRotateS":[3,120],"localOffsetMin":[-720,840]}}
 ```
-`defaultRange`: `1d`|`5d`|`1mo`. `tzMode`: `exchange` (America/New_York) | `local` (fixed UTC offset `localOffsetMin`, no DST).
+`pages` (`1..15`) and `charts` (`1..7`): bitmasks of the LCD pages / Market chart ranges that rotate (see the SmallTV docs). On the CYD they steer the automatic rotation: a screen whose `pages` bit is 0 is skipped (the bit values are historical and fixed: Portfolio=1, Positions=2, Chart=4, Realised=8 - the checkbox numbers in the web UI show the LCD position instead), and each time the rotation enters the chart screen it steps to the next enabled `charts` range (1D=1, 5D=2, 1M=4). Touching a nav zone or a period button always works, so the masks can never lock you out of a screen. The LCD nav runs left to right **Dashboard | Chart | Positions | Realised P/L** (nav zone id == screen id; the `pages` bits keep their historical numbering, so a stored `config.json` still means the same pages). `defaultRange`: `1d`|`5d`|`1mo`. `tzMode`: `exchange` (America/New_York) | `local` (fixed UTC offset `localOffsetMin`, no DST). Bangkok is `local` + `420` (ICT has never observed DST, so a fixed offset is exact); the web UI's **Zone preset** dropdown offers Bangkok, UTC+8, Tokyo/Seoul, India and UTC and fills the offset for you. In `local` mode the zone shown by `/api/market` is `UTC+07:00` while `tzName` stays the instrument's exchange zone - NYSE session hours and the OPEN/CLOSED badge always follow America/New_York rules, never the display zone.
 
 ### GET /api/positions/job
 State of the last "add position" request: `{"state":"idle|pending|ok|error","error":"","symbol":"^GSPC","updated":false}`.
@@ -150,6 +150,7 @@ Notes the dashboard relies on
 | `POST /api/sales/preview` | `{"symbol":"^GSPC","date":"YYYY-MM-DD","method":"fifo"\|"specific","mode":"qty"\|"thb"\|"all","lotId":1,"qty":10,"amount":10000,"price":6200,"fee":10}` | `200 {"ok":true,"state":"ready","preview":{...}}` | Validates + allocates the lots and computes the money **without writing anything**. Without `price` it answers `202 {"ok":true,"state":"pending"}` and looks up the closing price of `date` (poll `/api/sales/job`, then re-post the same body; the reply is then `ready` and `priceSource:"yahoo"`). `400` with a readable reason (`"only 51.67 available"`, `"no open position for that symbol"`, `"sale date is in the future"`, `"choose a lot"`, ...). |
 | `POST /api/sales/confirm` | the preview body + `"token":<preview.token>` | `200 {"ok":true,"state":"committed","id":"TX-000004","seq":4,"preview":{...}}` | The token binds the commit to the portfolio state the preview was computed from: any lot change, new sale or undo in between gives `409` (`"preview is out of date..."`). Never deletes anything; the lot quantities are set to the preview's `after`. |
 | `POST /api/sales/reverse` | `{"seq":4}` | `200 {"ok":true}` | Appends a reversal record (an undo is a new line, never an edit). `400` for an unknown `seq`, an already reversed sale, or a reversal of a reversal. |
+| `POST /api/sales/delete` | `{"seq":4}` | `200 {"ok":true}` | **Permanently** removes one transaction from `/sells.jsonl`. A sale and its reversal are always removed together (`seq` may name either); an active sale is reversed first so the position is restored. Later records are renumbered (`TX-` ids are kept). `404` unknown `seq`, `409` ledger has unreadable lines. Rewrites the file through a temp copy, finished at boot if power is cut. |
 | `POST /api/wifi/connect` | `{"ssid":"home","password":"..."}` | `202 {"ok":true,"state":"connecting"}` | non-blocking; poll `/api/wifi/status` -> `connect.state`. Credentials are saved only after a successful join; on failure the old network is restored. |
 | `POST /api/wifi/reconnect` | `{}` | `200 {"ok":true}` | |
 | `POST /api/wifi/forget` | `{"confirm":"FORGET"}` | `200 {"ok":true}` | deletes saved credentials, device starts the setup AP |
@@ -184,7 +185,7 @@ A sale is **Input -> Preview -> Confirm -> Commit**, never a single mutating cal
 
 Guarantees
 
-* The ledger is **append-only**: nothing is ever edited or deleted, an undo is a new record.
+* Sales and undos are **append-only** records: an undo is a new record, never an edit. The one exception is the explicit `POST /api/sales/delete`, which removes a sale and its reversal for good.
 * Applying a record sets `qty = alloc.after` (absolute), so replaying it twice is a no-op.
 * Commit order is journal -> append -> save portfolio; `/txn.pending` holds the in-flight record so a power cut mid-append is completed (or the partial tail truncated) at the next boot. `/portfolio.json` `appliedSeq` marks what is already reflected.
 * `version` 2 of `/portfolio.json` adds `ver`, `appliedSeq`, `nextLotId`, `nextTxn` and per-lot `id`/`oqty`; a v1 file loads unchanged and is migrated on the next write.
