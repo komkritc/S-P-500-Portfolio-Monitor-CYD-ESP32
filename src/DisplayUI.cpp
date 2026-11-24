@@ -488,9 +488,11 @@ void drawDashDynamic() {
   }
 
   // INVESTED / POSITIONS values: their y sits 18 px under the label cursor,
-  // because F2 "600,000.00" inks a comma that descends into the value's row.
+  // because F2 "10,600,000" style numbers get a comma that descends into the
+  // value's row. Invested is shown in whole baht - the decimals only push the
+  // number into the POSITIONS column next to it.
   txtFmt(S_INV, Cfg::DASH_LX + 12, 168, F2, Cfg::TEXT, Cfg::CARD, false,
-         "%s", numBuf(4, sm.invested));
+         "%s", numBuf(4, sm.invested, false, 0));
   txtFmt(S_CNT, Cfg::DASH_LX + Cfg::DASH_LW - 12, 168, F2, Cfg::TEXT, Cfg::CARD,
          true, "%u", (unsigned)sm.count);
 

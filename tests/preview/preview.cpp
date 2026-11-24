@@ -117,6 +117,9 @@ static void build(AppState &a, Scn s, uint32_t epoch) {
   else if (s == S_MANY) {
     addPos(a, "^GSPC", "2025-11-20", 39.17, 6382.10); addPos(a, "^GSPC", "2026-01-05", 12.5, 7010.5); addPos(a, "^GSPC", "2026-02-02", 3.25, 7300);
     addPos(a, "^GSPC", "2026-03-02", 1.1, 6100); addPos(a, "^GSPC", "2026-04-01", 100.123456, 6900); addPos(a, "^GSPC", "2026-05-01", 0.5, 7800); addPos(a, "^GSPC", "2026-06-01", 2, 6500);
+    // a lot sized like the real portfolio's invested capital (about THB 10.6 M
+    // in total), so the whole-baht INVESTED number is checked at that scale
+    addPos(a, "^GSPC", "2026-07-01", 1400, 6800);
   } else if (s == S_REALISED) {
     addPos(a, "^GSPC", "2025-11-20", 39.17, 6382.10); addPos(a, "^GSPC", "2026-01-05", 12.5, 7010.5); addPos(a, "^GSPC", "2026-02-02", 3.25, 6200);
     sale::summaryReset(a.realised);

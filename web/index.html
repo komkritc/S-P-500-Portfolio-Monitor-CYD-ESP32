@@ -275,6 +275,9 @@ if(y<1970||t.getUTCFullYear()!=y||t.getUTCMonth()!=mo-1||t.getUTCDate()!=d)retur
 const NA='N/A',TABS=['portfolio','market','details','sales','wifi','settings','system'];
 const nf=(x,d)=>x==null||!isFinite(x)?NA:Number(x).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
 const thb=(x,s)=>x==null?NA:(x<0?'-':s&&x>0?'+':'')+'THB '+nf(Math.abs(x),2);
+// invested capital is whole baht: "THB 10,600,000" reads better than
+// "THB 10,600,000.00", and the same rule is used on the LCD.
+const thb0=(x)=>x==null?NA:(x<0?'-':'')+'THB '+nf(Math.abs(x),0);
 const pts=(x,s)=>x==null?NA:(s&&x>0?'+':'')+nf(x,2);
 const pc=x=>x==null?NA:(x>0?'+':'')+nf(x,2)+'%';
 const age=s=>s<0?'0s':s<60?Math.round(s)+'s':s<3600?Math.floor(s/60)+'m':s<86400?Math.floor(s/3600)+'h '+Math.floor(s%3600/60)+'m':Math.floor(s/86400)+'d '+Math.floor(s%86400/3600)+'h';
@@ -343,7 +346,7 @@ async function ldMarket(){const m=await api('/api/market');MK=m;rQ('ix',m);rQ('m
 /* ---- portfolio ---- */
 function rPf(d){
 const s=d.summary||{};
-set('c-nav',thb(s.nav));set('c-pl',thb(s.pl,1),s.pl||0);set('c-ret',pc(s.returnPct),s.returnPct||0);set('c-inv',thb(s.invested));
+set('c-nav',thb(s.nav));set('c-pl',thb(s.pl,1),s.pl||0);set('c-ret',pc(s.returnPct),s.returnPct||0);set('c-inv',thb0(s.invested));
 set('c-rpl',thb(s.realisedPl,1),s.realisedPl||0);set('c-lpl',thb(s.lifetimePl,1),s.lifetimePl||0);
 set('c-rpl-s',s.realisedPl==null?'ledger not read yet':'all time');
 set('c-upd','('+lt(d.updated)+')');stB('pf-stale',s.stale,d.updated);
@@ -379,7 +382,7 @@ cols.forEach(c=>{const td=E('td',(c.n?'n ':'')+(c.h?'hm':''));if(c.b)td.append(E
 if(full){const td=E('td','n'),b=E('button','btn x','\u00d7');b.title='Delete';b.onclick=()=>delPos(r,b);td.append(b);tr.append(td)}
 bd.append(tr)});
 if(full&&DP.summary){const s=DP.summary,tr=E('tr','tot');
-cols.forEach(c=>{const td=E('td',c.n?'n':'');const m={symbol:'TOTAL',cost:thb(s.invested),nav:thb(s.nav),pl:thb(s.pl,1),returnPct:pc(s.returnPct)};td.textContent=m[c.k]||'';
+cols.forEach(c=>{const td=E('td',c.n?'n':'');const m={symbol:'TOTAL',cost:thb0(s.invested),nav:thb(s.nav),pl:thb(s.pl,1),returnPct:pc(s.returnPct)};td.textContent=m[c.k]||'';
 if(c.k=='pl'&&s.pl>0||c.k=='returnPct'&&s.returnPct>0)td.classList.add('pos');if(c.k=='pl'&&s.pl<0||c.k=='returnPct'&&s.returnPct<0)td.classList.add('neg');tr.append(td)});
 tr.append(E('td'));bd.append(tr)}}
 async function ldPos(){DP=await api('/api/positions');rpos($('pt'),CK);rpos($('dt'),PC.map(c=>c.k),1)}
