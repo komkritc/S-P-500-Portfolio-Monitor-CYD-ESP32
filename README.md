@@ -5,7 +5,7 @@ pages you swipe between with your finger, plus a full web dashboard served by th
 device. Quotes and charts come from Yahoo Finance; positions and the sale ledger live in
 the display's own flash. No cloud account, no server, no subscription.
 
-This is the ESP32 / TFT_eSPI port of [SP500_SmallTV](../SP500_SmallTV/README.md) (ESP8266,
+This is the ESP32 / TFT_eSPI port of [SP500_SmallTV](https://github.com/komkritc/S-P-500-Portfolio-Monitor-SmallTV-ESP8266-) (ESP8266,
 240x240, no touch). The firmware core is shared: same position model, same sale ledger,
 same JSON API, same web UI. What differs is the screen - bigger, landscape, and with
 **touch navigation** instead of a rotation timer only.
@@ -200,6 +200,6 @@ tests/ tools/ docs/
   stale data instead of failing.
 * The two READMEs share the data rules (N/A never 0, STALE handling, unrealised vs realised
   vs lifetime P/L, `N/A` semantics for unknown sides) - the full text is in
-  [the SmallTV README](../SP500_SmallTV/README.md) and [docs/API.md](docs/API.md).
+  [the SmallTV README](https://github.com/komkritc/S-P-500-Portfolio-Monitor-SmallTV-ESP8266-) and [docs/API.md](docs/API.md).
 * There is no automatic boot-slot rollback: an upload goes to the free app slot, so a broken
   image is recovered by re-flashing (USB always works).
