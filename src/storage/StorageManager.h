@@ -1,0 +1,45 @@
+// StorageManager.h - LittleFS persistence (replaces the ESP32 Preferences / LittleFS usage of the original).
+//
+// esp_littlefs refuses "/" as a mount point (ESP_ERR_INVALID_ARG), so the partition is
+// mounted at FS_ROOT ("/lfs"); the Arduino FS API is root-relative, so all LittleFS.*
+// calls below use plain "/file" paths (the wrapper prepends the mount point):
+//
+//   /settings.json   Settings (+ admin password), JSON
+//   /portfolio.json  positions + lot/ledger meta (v2 format, still readable by v1.0)
+//   /sells.jsonl     append-only sale ledger (+ txn.pending in-flight journal, see SaleStore)
+//   /wifi.json       {"ssid","pass"}  - never exposed through any API
+//   /cache.bin       last good quotes + charts (binary, CRC-checked), reboot offline shows data
+//
+// Every write goes to <file>.tmp and is renamed over the target, so a power cut leaves either the old
+// or the new file, never a half-written one.
+#pragma once
+#include <Arduino.h>
+
+#define FS_ROOT "/lfs"
+#include "../core/AppState.h"
+
+namespace storage {
+bool begin();                         // mounts LittleFS, formats it on first use
+bool ok();
+void fsInfo(uint32_t &totalBytes, uint32_t &usedBytes);
+bool busy();                          // true while a write is in progress (restart/OTA wait for it)
+// Writes <path>.tmp and renames it over <path>, so a power cut leaves the old or the new file.
+bool writeAtomic(const char *path, const uint8_t *data, size_t len);
+
+void loadSettings(Settings &s);       // keeps defaults for anything missing/invalid
+bool saveSettings(const Settings &s);
+uint8_t loadPortfolio(AppState &a);            // positions + pmeta (v1 files auto-migrate)
+bool savePortfolio(const AppState &a);
+
+struct WifiCreds { char ssid[33]; char pass[65]; };
+bool loadWifi(WifiCreds &w);          // false if none saved
+bool saveWifi(const char *ssid, const char *pass);
+bool eraseWifi();
+
+bool loadCache(AppState &a);
+bool saveCache(const AppState &a);
+bool eraseCache();
+
+// Erases everything the firmware owns. keepWifi/keepPortfolio select what survives (settings reset).
+void eraseAll(bool keepWifi, bool keepPortfolio);
+}

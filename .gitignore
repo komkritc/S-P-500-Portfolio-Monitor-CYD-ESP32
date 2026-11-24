@@ -1,0 +1,24 @@
+# PlatformIO build products
+.pio/
+
+# Wi-Fi credentials / OTA password go here - copy include/secrets.example.h
+include/secrets.h
+
+# host test binaries and rendered frames (python3 tests/preview/run_preview.py)
+tests/preview/preview
+tests/preview/build/
+tests/preview/out/
+tests/unit/test_core
+tests/unit/test_sales
+__pycache__/
+
+# intermediate gzip chunks from tools/gen_web_assets.py
+web/gz_tmp/
+
+# scratch backups left by editing sessions
+*.bak.*
+*.orig
+*.rej
+
+# boot-time log dump from the serial monitor, if you save one
+boot.log
