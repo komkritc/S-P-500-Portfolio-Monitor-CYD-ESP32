@@ -196,12 +196,15 @@ int32_t displayOffsetSec(uint32_t utc, uint8_t tzMode, int16_t localOffsetMin, c
 
 static const char *const MON[12] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
 
-void formatQuoteTime(char *out, size_t n, uint32_t utc, uint8_t tzMode, int16_t localOffsetMin) {
+void formatQuoteTime(char *out, size_t n, uint32_t utc, uint8_t tzMode, int16_t localOffsetMin, bool withZone) {
   if (utc == 0) { snprintf(out, n, "N/A"); return; }
   const char *ab = ""; char buf[12];
   int32_t off = displayOffsetSec(utc, tzMode, localOffsetMin, &ab, buf);
   LocalTime lt = toLocal(utc, off);
-  snprintf(out, n, "%s %d, %02d:%02d %s", MON[lt.m - 1], lt.d, lt.hh, lt.mm, ab);
+  if (withZone)
+    snprintf(out, n, "%s %d, %02d:%02d %s", MON[lt.m - 1], lt.d, lt.hh, lt.mm, ab);
+  else
+    snprintf(out, n, "%s %d, %02d:%02d", MON[lt.m - 1], lt.d, lt.hh, lt.mm);
 }
 
 void formatSessionDate(char *out, size_t n, uint32_t utc) {

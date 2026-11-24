@@ -31,6 +31,11 @@ bool saleCommit(AppState &a, const SaleRequest &req, SalePreview &pv, char *err,
 // Appends the reversal of the sale with `seq` (0 = the newest sale).
 bool saleReverse(AppState &a, uint32_t seq, char *err, size_t errN, int *code = nullptr);
 
+// Permanently removes one transaction from the history. A sale and its reversal always go together
+// (`seq` may name either). A sale that is still active is reversed first, so the position is
+// restored before anything is removed. Remaining records are renumbered (ids TX-xxxxxx are kept).
+bool saleDelete(AppState &a, uint32_t seq, char *err, size_t errN, int *code = nullptr);
+
 // Newest-first page of history (`total` = records matching `symbol`, "" = all).
 // Rows carry their status: REC_SALE / REC_REVERSAL / SALE_ST_REVERSED.
 struct SalePage {

@@ -6,12 +6,15 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <memory>
+#include <new>
 #include "../finance/SaleEngine.h"
 
 namespace storage {
 
 static const char *LEDGER_PATH  = "/sells.jsonl";
 static const char *JOURNAL_PATH = "/txn.pending";
+static const char *LEDGER_TMP   = "/sells.jsonl.tmp";
 
 static uint32_t nowEpoch() {
   time_t t = time(nullptr);
@@ -219,9 +222,14 @@ bool saleCommit(AppState &a, const SaleRequest &req, SalePreview &pv, char *err,
     return false;
   }
   if (a.pmeta.nextTxn == 0) a.pmeta.nextTxn = 1;
-  SaleRecord r;
-  sale::makeRecord(pv, a.pmeta.appliedSeq + 1, nowEpoch(), a.pmeta, r);
-  return commitRecord(a, r, err, errN, code);
+  // Heap, not stack: a SaleRecord is ~730 B and this runs inside a web request on the ~4 KB cont stack
+  // (together with the request body parser and the preview it overflowed and reset the chip).
+  SaleRecord *r = (SaleRecord *)calloc(1, sizeof(SaleRecord));
+  if (!r) { setErr(err, errN, "out of memory"); if (code) *code = 500; return false; }
+  sale::makeRecord(pv, a.pmeta.appliedSeq + 1, nowEpoch(), a.pmeta, *r);
+  bool ok = commitRecord(a, *r, err, errN, code);
+  free(r);
+  return ok;
 }
 
 // ---------------------------------------------------------------- history helpers
@@ -256,7 +264,7 @@ static bool isReversed(const ReversedBits &b, uint32_t seq) {
   return (b.bit[i >> 3] & (uint8_t)(1u << (i & 7))) != 0;
 }
 
-bool saleReverse(AppState &a, uint32_t seq, char *err, size_t errN, int *code) {
+static bool saleReverseImpl(AppState &a, uint32_t seq, char *err, size_t errN, int *code, FindCtx &fc, SaleRecord &rev) {
   auto fail = [&](const char *msg, int c) {
     setErr(err, errN, msg);
     if (code) *code = c;
@@ -265,14 +273,15 @@ bool saleReverse(AppState &a, uint32_t seq, char *err, size_t errN, int *code) {
   if (code) *code = 400;
   sale::LineSrc src = makeSrc();
   sale::ScanStats st;
-  FindCtx fc;
   memset(&fc, 0, sizeof fc);
   fc.seq = seq;
   sale::scan(src, findCb, &fc, st);
   if (!fc.found) return fail("record not found", 404);
   if (fc.rec.type != REC_SALE) return fail("only a sale can be reversed", 400);
 
-  ReversedBits bits;
+  std::unique_ptr<ReversedBits> bitsp(new (std::nothrow) ReversedBits);
+  if (!bitsp) { setErr(err, errN, "out of memory"); if (code) *code = 500; return false; }
+  ReversedBits &bits = *bitsp;
   memset(&bits, 0, sizeof bits);
   sale::LineSrc src2 = makeSrc();
   sale::ScanStats st2;
@@ -280,12 +289,134 @@ bool saleReverse(AppState &a, uint32_t seq, char *err, size_t errN, int *code) {
   if (isReversed(bits, fc.rec.seq)) return fail("this sale has already been reversed", 409);
 
   if (a.pmeta.nextTxn == 0) a.pmeta.nextTxn = 1;
-  SaleRecord rev;
+  memset(&rev, 0, sizeof rev);
   char buildErr[72] = "";
   if (!sale::makeReversal(a.positions, a.posCount, fc.rec, a.pmeta.appliedSeq + 1, nowEpoch(), a.pmeta, rev, buildErr, sizeof buildErr)) {
     return fail(buildErr[0] ? buildErr : "cannot reverse this record", 400);
   }
   return commitRecord(a, rev, err, errN, code);
+}
+
+bool saleReverse(AppState &a, uint32_t seq, char *err, size_t errN, int *code) {
+  // two ~730 B records: keep them off the request stack
+  FindCtx *fc = (FindCtx *)calloc(1, sizeof(FindCtx));
+  SaleRecord *rev = (SaleRecord *)calloc(1, sizeof(SaleRecord));
+  bool ok = false;
+  if (fc && rev) ok = saleReverseImpl(a, seq, err, errN, code, *fc, *rev);
+  else { setErr(err, errN, "out of memory"); if (code) *code = 500; }
+  free(fc); free(rev);
+  return ok;
+}
+
+// ---------------------------------------------------------------- delete a transaction
+struct DelFind {
+  uint32_t target;               // pass 1: the record the caller named
+  bool     found;
+  uint8_t  type;
+  uint32_t ref;                  // its refSeq (reversal -> the sale)
+  uint32_t saleSeq, revSeq;      // pass 2: the pair
+};
+static void delFind1(void *ctx, const SaleRecord &r, uint16_t) {
+  DelFind *c = static_cast<DelFind *>(ctx);
+  if (r.seq == c->target) { c->found = true; c->type = r.type; c->ref = r.refSeq; }
+}
+static void delFind2(void *ctx, const SaleRecord &r, uint16_t) {
+  DelFind *c = static_cast<DelFind *>(ctx);
+  if (r.type == REC_REVERSAL && r.refSeq == c->saleSeq) c->revSeq = r.seq;
+}
+
+struct RewriteCtx {
+  File     f;
+  char    *line;
+  uint32_t a, b;
+  uint16_t kept;
+  bool     ok;
+};
+static void rewriteCb(void *ctx, const SaleRecord &cr, uint16_t) {
+  RewriteCtx *c = static_cast<RewriteCtx *>(ctx);
+  if (!c->ok || cr.seq == c->a || cr.seq == c->b) return;
+  SaleRecord &r = const_cast<SaleRecord &>(cr);          // scan()'s own scratch record
+  r.seq = sale::seqAfterDelete(r.seq, c->a, c->b);
+  if (r.refSeq) r.refSeq = sale::seqAfterDelete(r.refSeq, c->a, c->b);
+  size_t n = sale::recordLine(r, c->line, LEDGER_LINE_MAX);
+  if (!n) { c->ok = false; return; }
+  if (c->f.write(reinterpret_cast<const uint8_t *>(c->line), n) != n || c->f.write(reinterpret_cast<const uint8_t *>("\n"), 1) != 1) { c->ok = false; return; }
+  c->kept++;
+}
+static void summaryCb(void *ctx, const SaleRecord &r, uint16_t) { sale::summaryAdd(*static_cast<RealisedSummary *>(ctx), r); }
+
+// Copies the ledger without records a/b (renumbering the rest) to a temp file and renames it over.
+static bool rewriteWithout(uint32_t a, uint32_t b, char *err, size_t errN) {
+  RewriteCtx c;
+  c.line = (char *)malloc(LEDGER_LINE_MAX);
+  c.a = a; c.b = b; c.kept = 0; c.ok = true;
+  if (!c.line) { setErr(err, errN, "out of memory"); return false; }
+  if (LittleFS.exists(LEDGER_TMP)) LittleFS.remove(LEDGER_TMP);
+  c.f = LittleFS.open(LEDGER_TMP, "w");
+  if (!c.f) { free(c.line); setErr(err, errN, "cannot create the temporary ledger"); return false; }
+  sale::LineSrc src = makeSrc();
+  sale::ScanStats st;
+  sale::scan(src, rewriteCb, &c, st);
+  c.f.close();
+  free(c.line);
+  if (!c.ok || st.badLines || st.partialTail) {
+    LittleFS.remove(LEDGER_TMP);
+    setErr(err, errN, "could not rewrite the ledger (flash full?)");
+    return false;
+  }
+  // esp_littlefs: remove the old file first (the Arduino wrapper logs an error when rename must replace one).
+  // A power cut between the two steps is finished by ledgerBoot(): it promotes a leftover temp when the ledger is gone.
+  if (LittleFS.exists(LEDGER_PATH)) LittleFS.remove(LEDGER_PATH);
+  if (!LittleFS.rename(LEDGER_TMP, LEDGER_PATH)) { setErr(err, errN, "could not replace the ledger"); return false; }
+  return true;
+}
+
+bool saleDelete(AppState &a, uint32_t seq, char *err, size_t errN, int *code) {
+  auto fail = [&](const char *msg, int cd) { setErr(err, errN, msg); if (code) *code = cd; return false; };
+  if (code) *code = 400;
+  if (!seq) return fail("seq required", 400);
+  std::unique_ptr<DelFind> f(new (std::nothrow) DelFind);
+  if (!f) return fail("out of memory", 500);
+  memset(f.get(), 0, sizeof(DelFind));
+  f->target = seq;
+  {
+    sale::LineSrc src = makeSrc();
+    sale::ScanStats st;
+    sale::scan(src, delFind1, f.get(), st);
+    if (!f->found) return fail("record not found", 404);
+    if (st.badLines || st.partialTail) return fail("the ledger has unreadable lines - export the CSV first", 409);
+  }
+  f->saleSeq = f->type == REC_REVERSAL ? f->ref : seq;
+  for (int pass = 0; pass < 2; pass++) {
+    f->revSeq = 0;
+    sale::LineSrc src = makeSrc();
+    sale::ScanStats st;
+    sale::scan(src, delFind2, f.get(), st);
+    if (f->revSeq) break;
+    if (pass == 1) return fail("could not reverse the sale", 500);
+    // still active: undo it first (restores the position), then remove the pair
+    int rc = 500;
+    char rerr[80] = "";
+    if (!saleReverse(a, f->saleSeq, rerr, sizeof rerr, &rc)) return fail(rerr[0] ? rerr : "could not reverse the sale", rc);
+  }
+  uint32_t sa = f->saleSeq, sb = f->revSeq;
+  busyBegin();
+  bool ok = rewriteWithout(sa, sb, err, errN);
+  busyEnd();
+  if (!ok) { if (code) *code = 500; return false; }
+
+  a.pmeta.appliedSeq = sale::seqAfterDelete(a.pmeta.appliedSeq, sa, sb);
+  a.pmeta.ver++;                                        // invalidates any open preview token
+  sale::summaryReset(a.realised);
+  {
+    sale::LineSrc src = makeSrc();
+    sale::ScanStats st;
+    sale::scan(src, summaryCb, &a.realised, st);
+    if (!st.opened && LittleFS.exists(LEDGER_PATH)) a.realised.valid = false;
+  }
+  if (!savePortfolio(a)) return fail("removed, but saving the portfolio failed (repaired at next boot)", 500);
+  if (code) *code = 200;
+  return true;
 }
 
 struct CountCtx { const char *symbol; uint16_t n; };
@@ -335,7 +466,9 @@ bool salePage(const AppState &a, const char *symbol, uint16_t offset, uint16_t l
   memset(&out, 0, sizeof out);
   if (!symbol) symbol = "";
   if (limit == 0 || limit > SALES_PAGE_MAX) limit = SALES_PAGE_MAX;
-  ReversedBits bits;
+  std::unique_ptr<ReversedBits> bitsp(new (std::nothrow) ReversedBits);
+  if (!bitsp) { setErr(err, errN, "out of memory"); return false; }
+  ReversedBits &bits = *bitsp;
   memset(&bits, 0, sizeof bits);
   sale::LineSrc src = makeSrc();
   sale::ScanStats st;
@@ -375,7 +508,9 @@ bool saleReversed(const AppState &a, uint32_t seq, bool &out) {
   (void)a;
   out = false;
   if (!seq) return false;
-  ReversedBits bits;
+  std::unique_ptr<ReversedBits> bitsp(new (std::nothrow) ReversedBits);
+  if (!bitsp) return false;
+  ReversedBits &bits = *bitsp;
   memset(&bits, 0, sizeof bits);
   sale::LineSrc src = makeSrc();
   sale::ScanStats st;
@@ -426,7 +561,9 @@ bool saleCsv(const AppState &a, const char *symbol, CsvSink sink, void *ctx, cha
   (void)a;
   if (!sink) { setErr(err, errN, "no sink"); return false; }
   if (!symbol) symbol = "";
-  ReversedBits bits;
+  std::unique_ptr<ReversedBits> bitsp(new (std::nothrow) ReversedBits);
+  if (!bitsp) { setErr(err, errN, "out of memory"); return false; }
+  ReversedBits &bits = *bitsp;
   memset(&bits, 0, sizeof bits);
   sale::LineSrc src = makeSrc();
   sale::ScanStats st;
@@ -450,6 +587,10 @@ bool saleCsv(const AppState &a, const char *symbol, CsvSink sink, void *ctx, cha
 
 // ---------------------------------------------------------------- boot recovery
 bool ledgerBoot(AppState &a) {
+  if (LittleFS.exists(LEDGER_TMP)) {                    // a delete/rewrite was cut by a power loss
+    if (!LittleFS.exists(LEDGER_PATH)) { LittleFS.rename(LEDGER_TMP, LEDGER_PATH); Serial.println(F("[ledger] finished an interrupted rewrite")); }
+    else LittleFS.remove(LEDGER_TMP);                   // the old ledger is intact: drop the half-written copy
+  }
   bool exists = LittleFS.exists(LEDGER_PATH);
   bool journalExists = LittleFS.exists(JOURNAL_PATH);
   SaleRecord pending;
@@ -474,6 +615,7 @@ bool ledgerBoot(AppState &a) {
   a.realised.badLine = st2.badLines > 0;
   if (exists && !st2.opened) a.realised.valid = false;  // present but unreadable -> N/A, not 0
   if (a.pmeta.nextTxn == 0) a.pmeta.nextTxn = 1;
+  if (st2.opened && a.pmeta.appliedSeq > st2.maxSeq) a.pmeta.appliedSeq = st2.maxSeq;   // a delete renumbered the ledger, the portfolio save was cut
 
   bool changed = a.pmeta.ver != ver0 || a.pmeta.appliedSeq != seq0 || a.pmeta.nextTxn != txn0;
   if (changed && !savePortfolio(a)) Serial.println(F("[ledger] saving the repaired portfolio failed"));

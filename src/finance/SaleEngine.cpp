@@ -501,6 +501,13 @@ static void yearAdd(RealisedSummary &s, const char *date, double delta) {
   s.nYears++;
 }
 
+uint32_t seqAfterDelete(uint32_t seq, uint32_t a, uint32_t b) {
+  // = how many records with seq' <= seq remain. For a surviving seq that is its new number; for
+  // appliedSeq it is the new "highest applied" even when that record itself was deleted.
+  uint32_t gone = (a && a <= seq ? 1u : 0u) + (b && b != a && b <= seq ? 1u : 0u);
+  return seq - gone;
+}
+
 void summaryReset(RealisedSummary &s) {
   memset(&s, 0, sizeof s);
   s.valid = true;

@@ -23,6 +23,8 @@ bool begin();                         // mounts LittleFS, formats it on first us
 bool ok();
 void fsInfo(uint32_t &totalBytes, uint32_t &usedBytes);
 bool busy();                          // true while a write is in progress (restart/OTA wait for it)
+void busyBegin();                     // hold/release the flag around a multi-step write (SaleStore)
+void busyEnd();
 // Writes <path>.tmp and renames it over <path>, so a power cut leaves the old or the new file.
 bool writeAtomic(const char *path, const uint8_t *data, size_t len);
 

@@ -30,7 +30,7 @@ uint32_t sessionOpenUtc(int y, int m, int d);
 uint32_t sessionCloseUtc(int y, int m, int d);
 
 // "Nov 20, 16:35 EST" in the chosen zone. tzMode 0 = exchange (DST aware), 1 = fixed offset.
-void formatQuoteTime(char *out, size_t n, uint32_t utc, uint8_t tzMode, int16_t localOffsetMin);
+void formatQuoteTime(char *out, size_t n, uint32_t utc, uint8_t tzMode, int16_t localOffsetMin, bool withZone = true);
 // "2026-11-20" of the exchange-local day of `utc`.
 void formatSessionDate(char *out, size_t n, uint32_t utc);
 // "HH:MM" / "Nov 20" labels for chart axes.

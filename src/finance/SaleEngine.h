@@ -72,6 +72,11 @@ bool applyRecord(Position *pos, uint8_t &n, PortfolioMeta &m, const SaleRecord &
 void summaryReset(RealisedSummary &s);
 void summaryAdd(RealisedSummary &s, const SaleRecord &r);               // order matters for the ring
 
+// ---------------------------------------------------------------- delete
+// Deleting a sale (and its reversal, if any) removes up to two seqs (a, b; pass b = 0 for none).
+// Every later seq, refSeq and appliedSeq moves down so the numbering stays dense.
+uint32_t seqAfterDelete(uint32_t seq, uint32_t a, uint32_t b);
+
 // ---------------------------------------------------------------- boot scan
 // Phase 1 (read-only): what must the filesystem do before the ledger can be trusted?
 // `pending`/`pendingOk` describe /txn.pending (nullptr when absent or unparseable).

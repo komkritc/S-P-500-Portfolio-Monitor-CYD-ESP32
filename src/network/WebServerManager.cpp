@@ -2,6 +2,8 @@
 #include <WebServer.h>
 #include <WiFi.h>
 #include <time.h>
+#include <memory>
+#include <new>
 #include "WiFiManager.h"
 #include "OTAManager.h"
 #include "../core/AppState.h"
@@ -69,7 +71,12 @@ static bool requireAuth() {
   return false;
 }
 
-// POST body (plain). ESP8266WebServer stores a JSON body as arg("plain"); cap the size.
+// POST body (plain). The WebServer stores a JSON body as arg("plain"); cap the size.
+// FlatJson is ~1.3 KB: keep it (and every other big handler local) on the heap so the
+// web-server task stack never runs close to its limit, whatever task it runs on.
+#define HEAP_JSON(j, onFail) std::unique_ptr<FlatJson> j##_p(new (std::nothrow) FlatJson); \
+  if (!j##_p) { sendErr(500, "out of memory"); onFail; } FlatJson &j = *j##_p
+
 static bool body(FlatJson &j, char *err = nullptr, size_t en = 0) {
   const String &b = server.arg("plain");
   if (b.length() == 0) { return j.parse("{}", 2); }
@@ -309,7 +316,9 @@ static void apiSales() {
   if (server.hasArg("limit")) { long v = server.arg("limit").toInt(); if (v < 1) v = 1; limit = (uint16_t)(v > SALES_PAGE_MAX ? SALES_PAGE_MAX : v); }
   char symbol[SYMBOL_LEN] = "";
   if (server.hasArg("symbol")) strlcpy(symbol, server.arg("symbol").c_str(), sizeof symbol);
-  storage::SalePage page;
+  std::unique_ptr<storage::SalePage> pagep(new (std::nothrow) storage::SalePage);   // ~1 KB: heap, not the request stack
+  if (!pagep) { sendErr(500, "out of memory"); return; }
+  storage::SalePage &page = *pagep;
   char err[64] = "";
   if (!storage::salePage(g_app, symbol, offset, limit, page, err, sizeof err)) { sendErr(500, err); return; }
   Reply r(200); JsonWriter &w = r.w;
@@ -351,7 +360,7 @@ static void apiSaleJob() {
 // and the reply is 202 {state:"pending"}; the client re-posts the same body once the job is ok.
 static void postSalePreview() {
   if (!requireAuth()) return;
-  FlatJson j;
+  HEAP_JSON(j, return);
   char err[72] = "";
   if (!body(j, err, sizeof err)) { sendErr(400, err); return; }
   SaleRequest req;
@@ -380,16 +389,20 @@ static void postSalePreview() {
 // Confirm -> Commit. The token proves the preview was computed from the portfolio as it is now.
 static void postSaleConfirm() {
   if (!requireAuth()) return;
-  FlatJson j;
   char err[80] = "";
   int code = 400;
-  if (!body(j, err, sizeof err)) { sendErr(400, err); return; }
   SaleRequest req;
-  if (!parseSaleReq(j, req, err, sizeof err)) { sendErr(400, err); return; }
+  {
+    // FlatJson is 1.3 KB: parse on the heap and drop it before the commit goes deep into LittleFS
+    HEAP_JSON(j, return);
+    if (!body(j, err, sizeof err)) { sendErr(400, err); return; }
+    if (!parseSaleReq(j, req, err, sizeof err)) { sendErr(400, err); return; }
+  }
   if (!req.token) { sendErr(400, "preview token required"); return; }
-  SalePreview pv;
-  memset(&pv, 0, sizeof pv);
-  if (!storage::saleCommit(g_app, req, pv, err, sizeof err, &code)) { sendErr(code, err); return; }
+  SalePreview *pvp = (SalePreview *)calloc(1, sizeof(SalePreview));   // ~780 B: heap, the handler stack is small
+  if (!pvp) { sendErr(500, "out of memory"); return; }
+  SalePreview &pv = *pvp;
+  if (!storage::saleCommit(g_app, req, pv, err, sizeof err, &code)) { free(pvp); sendErr(code, err); return; }
   market::positionsChanged();
   char txId[16];
   snprintf(txId, sizeof txId, "TX-%06lu", (unsigned long)(g_app.pmeta.nextTxn ? g_app.pmeta.nextTxn - 1 : 0));
@@ -397,17 +410,37 @@ static void postSaleConfirm() {
   w.beginObj().kBool("ok", true).kStr("state", "committed").kStr("id", txId).kInt("seq", g_app.pmeta.appliedSeq);
   writeSalePreview(w, pv);
   w.endObj();
+  free(pvp);
 }
 
 static void postSaleReverse() {
   if (!requireAuth()) return;
-  FlatJson j;
   char err[80] = "";
   int code = 400;
-  if (!body(j, err, sizeof err)) { sendErr(400, err); return; }
   double seq = 0;
-  if (!j.num("seq", seq, true) || seq < 0 || seq > 4294967295.0) { sendErr(400, "seq required"); return; }
+  {
+    HEAP_JSON(j, return);
+    if (!body(j, err, sizeof err)) { sendErr(400, err); return; }
+    if (!j.num("seq", seq, true) || seq < 0 || seq > 4294967295.0) { sendErr(400, "seq required"); return; }
+  }
   if (!storage::saleReverse(g_app, (uint32_t)seq, err, sizeof err, &code)) { sendErr(code, err); return; }
+  market::positionsChanged();
+  sendOk();
+}
+
+// Permanently removes a sale and its reversal from the history (an active sale is reversed first).
+static void postSaleDelete() {
+  if (!requireAuth()) return;
+  char err[80] = "";
+  int code = 400;
+  double seq = 0;
+  {
+    HEAP_JSON(j, return);
+    if (!body(j, err, sizeof err)) { sendErr(400, err); return; }
+    if (!j.num("seq", seq, true) || seq < 1 || seq > 4294967295.0) { sendErr(400, "seq required"); return; }
+  }
+  // a failed delete may still have rewritten the ledger: recompute either way
+  if (!storage::saleDelete(g_app, (uint32_t)seq, err, sizeof err, &code)) { market::positionsChanged(); sendErr(code, err); return; }
   market::positionsChanged();
   sendOk();
 }
@@ -445,7 +478,7 @@ static void apiWifiScan() {
 // ---------------------------------------------------------------- write API
 static void postWifiConnect() {
   if (!requireAuth()) return;
-  FlatJson j; char err[40] = "";
+  HEAP_JSON(j, return); char err[40] = "";
   if (!body(j, err, sizeof err) || !j.isStr("ssid")) { sendErr(400, err[0] ? err : "ssid required"); return; }
   const char *ssid = j.str("ssid"), *pass = j.str("password");
   size_t sl = strlen(ssid), pl = strlen(pass);
@@ -457,7 +490,7 @@ static void postWifiConnect() {
 
 static void postPositions() {
   if (!requireAuth()) return;
-  FlatJson j; char err[48] = "";
+  HEAP_JSON(j, return); char err[48] = "";
   if (!body(j, err, sizeof err)) { sendErr(400, err); return; }
   if (!j.isStr("symbol") || !j.isStr("date")) { sendErr(400, "symbol and date are required"); return; }
   const char *sym = j.str("symbol"), *date = j.str("date");
@@ -484,7 +517,7 @@ static void postPositions() {
 
 static void postPositionsDelete() {
   if (!requireAuth()) return;
-  FlatJson j; double idx; char err[40] = "";
+  HEAP_JSON(j, return); double idx; char err[40] = "";
   if (!body(j, err, sizeof err)) { sendErr(400, err); return; }
   if (!j.num("index", idx, true) || idx < 0 || idx > 255 || !portfolioDelete(g_app.positions, g_app.posCount, g_app.pmeta, (uint8_t)idx)) { sendErr(400, "bad index"); return; }
   bool saved = storage::savePortfolio(g_app);
@@ -495,7 +528,7 @@ static void postPositionsDelete() {
 
 static void postSettings() {
   if (!requireAuth()) return;
-  FlatJson j; char err[64] = "";
+  HEAP_JSON(j, return); char err[64] = "";
   if (!body(j, err, sizeof err)) { sendErr(400, err); return; }
   Settings n = g_app.settings; bool hc = false;
   if (!settingsApply(n, j, err, sizeof err, &hc)) { sendErr(400, err); return; }
@@ -511,7 +544,7 @@ static void postSettings() {
 
 static void postRefresh() {
   if (!requireAuth()) return;
-  FlatJson j; body(j);
+  HEAP_JSON(j, return); body(j);
   const char *what = j.str("what", "all");
   market::Refresh r = market::REF_ALL;
   if (!strcmp(what, "quote")) r = market::REF_QUOTE; else if (!strcmp(what, "charts")) r = market::REF_CHARTS; else if (!strcmp(what, "portfolio")) r = market::REF_PORTFOLIO;
@@ -524,7 +557,7 @@ static void postCacheClear() { if (!requireAuth()) return; market::clearCache();
 static void postWifiReconnect() { if (!requireAuth()) return; wifimgr::requestReconnect(); sendOk(); }
 
 static bool confirmed(const char *word) {
-  FlatJson j; if (!body(j)) return false;
+  HEAP_JSON(j, return false); if (!body(j)) return false;
   return j.isStr("confirm") && !strcmp(j.str("confirm"), word);
 }
 
@@ -577,6 +610,7 @@ void begin() {
   server.on("/api/sales/preview", HTTP_POST, postSalePreview);
   server.on("/api/sales/confirm", HTTP_POST, postSaleConfirm);
   server.on("/api/sales/reverse", HTTP_POST, postSaleReverse);
+  server.on("/api/sales/delete", HTTP_POST, postSaleDelete);
   server.on("/api/market", HTTP_GET, apiMarket);
   server.on("/api/chart", HTTP_GET, apiChart);
   server.on("/api/wifi/status", HTTP_GET, apiWifiStatus);

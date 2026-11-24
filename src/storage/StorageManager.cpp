@@ -19,6 +19,8 @@ bool begin() {
 }
 bool ok() { return s_ok; }
 bool busy() { return s_busy != 0; }
+void busyBegin() { s_busy++; }
+void busyEnd() { if (s_busy) s_busy--; }
 
 void fsInfo(uint32_t &total, uint32_t &used) {
   if (s_ok) { total = (uint32_t)LittleFS.totalBytes(); used = (uint32_t)LittleFS.usedBytes(); }
