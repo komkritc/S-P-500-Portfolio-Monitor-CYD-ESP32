@@ -34,10 +34,19 @@ name-resolves - address the CYD directly by 192.168.1.161 if mDNS fails.
   `include/secrets.example.h` first and delete it when done (gitignored) - if it stays,
   the tree is dirty. Flash ~76 %, RAM ~20 %.
 * `web/index.html` is compiled into the firmware: after editing it, run
-  `python3 tools/gen_web_assets.py` (gz limit 22,528 B) before `pio run`.
-* `python3 tests/run_tests.py` builds host unit tests from `src/` (879 asserts);
-  `DisplayUI.cpp` is not in that file list, so the host build never compiles it.
-  `python3 tests/preview/run_preview.py` renders 71 LCD frames with a mock TFT.
+  `python3 tools/gen_web_assets.py` (gz limit 22,528 B) before `pio run`. fw 1.1.7 (candlesticks
+  + Bollinger Bands) uses **21,581 B gz - only ~950 B of headroom left**, so any new web feature
+  has to be measured with this tool first; shrinking means trimming the minified markup, not the
+  compressor (already level 9). From here only the served bytes are checkable
+  (`curl http://sp500-32.local/ | gunzip` and diff against the minified file) - what the browser
+  actually draws needs a real browser.
+* `python3 tests/run_tests.py` builds host unit tests from `src/` (1289 asserts, plus 128 in the
+  sale-ledger binary); `DisplayUI.cpp` is not in that file list, so the host build never compiles
+  it. It also leaves untracked ELF binaries `tests/test_core` and `tests/test_sales` behind - they
+  are **not** gitignored, delete them before committing.
+  `python3 tests/preview/run_preview.py` renders 71 LCD frames with a mock TFT; it compiles
+  `DisplayUI.cpp` and calls the parser/chart store itself, so any change to those signatures
+  must be mirrored in `tests/preview/preview.cpp` or the preview build breaks.
 * Host tests link `src/` against mocks in `tests/` and compile with plain g++: any ESP32
   API used in a compiled file must be guarded (`#if defined(ESP32)`), and new
   `DisplayUI.cpp` code must compile against `tests/preview/mock/TFT_eSPI.h`.

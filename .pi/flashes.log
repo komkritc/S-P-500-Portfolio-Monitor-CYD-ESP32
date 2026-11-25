@@ -18,3 +18,19 @@
 2026-11-25  pushed to GitHub: origin/main 58e6c16..0621fc8 (CYD repo, 5 commits: fw 1.1.4, fw 1.1.5, 3x .pi memory)
            gh/main 8eea1f8..2871713 (SmallTV repo, publish-smalltv branch built as 2 commits on top of the remote: v1.1.3 zone preset, then fw 1.1.6 LCD dim).
            Published tree verified byte-identical to SP500_SmallTV/ at 3b5759a (98 files).
+
+2026-11-25  CYD fw 1.1.7  OHLC candles + Bollinger Bands on the web market chart  method: espota (pio run -e cyd_ota -t upload --upload-port sp500-32.local), 69 s, Result: OK
+           Backend: YahooParser also parses open[]/high[]/low[], Chart gains o/h/l sliced from new chartO/H/L pools,
+           downsampleOHLC() bucket-merge (first/last bar verbatim, bucket high=max, low=min), /api/chart returns o/h/l,
+           chartStats take the wick extremes, cache.bin v1 -> v2 (20 B/point). Frontend: candlesticks + BB overlay
+           (period 10/20/50, width 1.5/2/2.5 sigma) kept in browser localStorage only.
+           Built from the newer tree in ~/Downloads/ESP32-CYD-SP500 (its own tests had 6 wrong expectations about the
+           parser - fixtures assumed a doji for a row that had a full candle and assumed reordering of out-of-order
+           timestamps; fixed here to assert the real rule: rows drop whole, arrays stay aligned, high/low clamped to body).
+           Verified offline: 1289+128 asserts pass, preview 71 frames 0 problems, RAM 20.9%, Flash 76.0%, web gz 21581/22528.
+           Verified live: fw 1.1.7 chip F3AF48, /api/chart o/h/l same length as v with 0 inconsistent bars
+           (1d 79, 5d 112, 1mo 22), &max=8 aggregation keeps 7415.64 wick extreme, served /index.html byte-identical
+           to the locally minified index.html (BB controls + candle drawing present), cache v2 round-trip proven by
+           reading /api/chart at uptime 2 s (updated=previous boot, stale:true, count 79, o[] full),
+           heap free 207.4 KB after reboot (was 212.1 KB on 1.1.5, -4.7 KB as predicted), maxBlock unchanged 110580.
+           Needs eyes on the browser: the actual BB band/candle rendering at http://sp500-32.local/#market.
