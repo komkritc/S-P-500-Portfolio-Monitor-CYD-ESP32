@@ -189,6 +189,42 @@ size_t recordLine(const SaleRecord &r, char *buf, size_t cap) {
   return s.len;
 }
 
+// ---------------------------------------------------------------- CSV export line
+// One CSV row for `r` (header: see SaleStore::saleCsv). Sized for the worst realistic record:
+// 12 allocations x "65535*1234567890.12345678@654321.123456" (~41 B each) + fixed fields (~300 B)
+// fits in the 832 B the caller passes. If the allocations section still overflows (only possible
+// via hand-crafted 1e300-scale numbers), it gets a visible "..." marker instead of a silent cut.
+size_t csvLineStr(const SaleRecord &r, bool reversed, char *out, size_t cap) {
+  char lots[512];
+  size_t lo = 0;
+  lots[0] = 0;
+  bool clipped = false;
+  for (uint8_t i = 0; i < r.nAlloc && i < MAX_LOT_ALLOCS; i++) {
+    const LotAlloc &a = r.alloc[i];
+    double sold = r.type == REC_SALE ? a.before - a.after : a.after - a.before;
+    int n = snprintf(lots + lo, sizeof lots - lo, "%s%u*%.8f@%.6f", i ? " " : "", (unsigned)a.lot, sold, a.buy);
+    if (n < 0 || (size_t)n >= sizeof lots - lo) { clipped = true; break; }
+    lo += (size_t)n;
+  }
+  if (clipped && lo + 3 < sizeof lots) { lots[lo++] = '.'; lots[lo++] = '.'; lots[lo++] = '.'; lots[lo] = 0; }
+  char refPx[32];
+  if (isNum(r.refPrice)) snprintf(refPx, sizeof refPx, "%.6f", r.refPrice);
+  else refPx[0] = 0;                                    // unknown -> empty, never 0
+  int n = snprintf(out, cap,
+                   "%lu,\"%s\",%s,%s,%lu,\"%s\",\"%s\",%.8f,%.6f,%s,%s,%.4f,%.6f,%.6f,%.6f,%.6f,%lu,\"%s\",\"%s\"\n",
+                   (unsigned long)r.seq, r.id,
+                   r.type == REC_SALE ? "sale" : "reversal",
+                   r.type == REC_REVERSAL ? "reversal" : (reversed ? "reversed" : "valid"),
+                   (unsigned long)r.ts, r.symbol, r.date, r.qty, r.price,
+                   refPx,
+                   r.priceSource == PRICE_YAHOO ? "yahoo" : "manual",
+                   r.fee, r.gross, r.net, r.cost, r.realised,
+                   (unsigned long)r.refSeq, r.refId, lots);
+  if (n < 0) return 0;
+  if ((size_t)n >= cap) return cap - 1;                 // truncation kept visible, never a spill
+  return (size_t)n;
+}
+
 // ---------------------------------------------------------------- ledger iteration
 void scan(LineSrc &src, RecordFn fn, void *ctx, ScanStats &st) {
   memset(&st, 0, sizeof st);

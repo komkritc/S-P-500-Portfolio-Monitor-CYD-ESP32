@@ -457,7 +457,7 @@ b.disabled=true;try{await api('/api/sales/delete',{seq:r.seq});toast('Transactio
 if(DS&&DS.count<=2&&soff>0)soff=Math.max(0,soff-DS.limit);
 await Promise.all([ldPos(),ldSales(),api('/api/portfolio').then(rPf)])}catch(e){toast(e.message,1);b.disabled=false}}
 async function undoSale(r,b){
-if(!confirm('Reverse sale '+r.id+' ('+i2d(r.date)+', '+thb(r.realised,1)+')?\n\nA reversal record is appended to the ledger; nothing is deleted.'))return;
+if(!confirm('Reverse sale '+r.id+' ('+i2d(r.date)+', '+thb(r.realised,1)+')?\n\nA reversal record is appended to the ledger; nothing is deleted. It books to the sale\'s own year, so "this year" figures do not change.'))return;
 b.disabled=true;try{await api('/api/sales/reverse',{seq:r.seq});toast('Sale reversed');
 await Promise.all([ldPos(),ldSales(),api('/api/portfolio').then(rPf)])}catch(e){toast(e.message,1);b.disabled=false}}
 function fillLots(){const s=$('v-sym').value.trim().toUpperCase(),l=$('v-lot');l.replaceChildren();

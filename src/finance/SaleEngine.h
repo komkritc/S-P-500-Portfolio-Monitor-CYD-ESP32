@@ -44,6 +44,7 @@ void scan(LineSrc &src, RecordFn fn, void *ctx, ScanStats &st);
 bool   parseRecord(const char *line, size_t len, SaleRecord &out);
 void   writeRecord(JsonWriter &w, const SaleRecord &r);                 // one object, no newline
 size_t recordLine(const SaleRecord &r, char *buf, size_t cap);          // JSON + NUL, 0 = too small
+size_t csvLineStr(const SaleRecord &r, bool reversed, char *out, size_t cap);  // one CSV export row (no scan); returns bytes written
 
 // ---------------------------------------------------------------- allocation & preview
 // Binds a preview to the portfolio + ledger state it was computed from (confirm must match).

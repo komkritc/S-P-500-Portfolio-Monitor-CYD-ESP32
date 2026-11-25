@@ -63,8 +63,9 @@ drawn too (`docs/img/lcd-offline.png`), as is the boot banner.
   sortable position table, add and delete positions, sell with preview and confirm,
   transaction history with undo and delete, CSV export, Wi-Fi setup, settings, diagnostics
   and OTA upload. Dark theme, works on a phone.
-* **Sale ledger:** FIFO or a specific lot, THB amount / quantity / entire holding, preview
-  before anything is written, undo as a reversal record, permanent delete, power-loss
+* **Sale ledger:** FIFO or a specific lot (oldest purchase date first), THB amount / quantity /
+  entire holding, preview before anything is written, undo as a reversal record (booked to the
+  original sale's year, so "this year" figures stay comparable), permanent delete, power-loss
   recovery through a journal file. Append-only.
 * **Honest numbers:** unknown data is `N/A`, never `0`; a failed refresh keeps the last value
   and marks it STALE; market status follows the NYSE calendar and real New York DST.

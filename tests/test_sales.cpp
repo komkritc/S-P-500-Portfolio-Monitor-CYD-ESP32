@@ -611,6 +611,54 @@ static void testSeqAfterDelete() {
   CHECK(sale::seqAfterDelete(1, 2, 0) == 1);
 }
 
+// ---------------------------------------------------------------- CSV export rows
+static void testCsvLine() {
+  SaleRecord r; memset(&r, 0, sizeof r);
+  r.seq = 7; r.ts = 1750000000u; r.type = REC_SALE; r.priceSource = PRICE_MANUAL;
+  strcpy(r.id, "TX-000007");
+  strcpy(r.symbol, "^GSPC"); strcpy(r.date, "2026-11-19");
+  r.qty = 12; r.price = 6200; r.refPrice = NAN; r.fee = 10;
+  r.gross = 74400; r.net = 74390; r.cost = 72200; r.realised = 2190;
+  r.nAlloc = 2;
+  LotAlloc a0 = {}; a0.lot = 1; strcpy(a0.date, "2026-01-02"); a0.buy = 6000; a0.oqty = 10; a0.before = 10; a0.after = 0;
+  LotAlloc a1 = {}; a1.lot = 2; strcpy(a1.date, "2026-02-02"); a1.buy = 6100; a1.oqty = 5;  a1.before = 5;  a1.after = 3;
+  r.alloc[0] = a0; r.alloc[1] = a1;
+
+  char out[832];
+  size_t n = sale::csvLineStr(r, false, out, sizeof out);
+  CHECK(n > 0 && n < sizeof out && out[n - 1] == '\n' && out[n] == 0);
+  CHECK(strstr(out, "7,\"TX-000007\",sale,valid,1750000000,\"^GSPC\",\"2026-11-19\"") == out);
+  CHECK(strstr(out, ",,manual,") != nullptr);                          // unknown refPrice -> empty, never 0
+  CHECK(strstr(out, "1*10.00000000@6000.000000 2*2.00000000@6100.000000") != nullptr);
+
+  // reversed sale and reversal rows
+  n = sale::csvLineStr(r, true, out, sizeof out);
+  CHECK(strstr(out, ",sale,reversed,") != nullptr);
+  r.type = REC_REVERSAL;
+  n = sale::csvLineStr(r, false, out, sizeof out);
+  CHECK(strstr(out, ",reversal,reversal,") != nullptr);
+  r.type = REC_SALE;
+
+  // worst case: 12 allocations with maximal-looking ids and 8/6-decimal values must all survive
+  SaleRecord w = r;
+  w.nAlloc = MAX_LOT_ALLOCS;
+  for (uint8_t i = 0; i < MAX_LOT_ALLOCS; i++) {
+    LotAlloc &x = w.alloc[i];
+    memset(&x, 0, sizeof x);
+    x.lot = (uint16_t)(65535 - MAX_LOT_ALLOCS + 1 + i);
+    strcpy(x.date, "2026-01-02");
+    x.buy = 654321.123456;
+    x.before = 1234567890.12345678;
+    x.after = 0;
+    x.oqty = x.before;
+  }
+  n = sale::csvLineStr(w, false, out, sizeof out);
+  CHECK(n > 0 && n < sizeof out && out[n - 1] == '\n' && strlen(out) == n);
+  CHECK(strstr(out, "65524*1234567890") != nullptr);                   // first allocation kept
+  CHECK(strstr(out, "65535*1234567890") != nullptr);                   // last allocation kept too
+  CHECK(strstr(out, "@654321.123456 ") != nullptr);                    // no silent cut mid-list
+}
+
 int main(int, char **) {
   testSeqAfterDelete();
   testPreview();
@@ -622,6 +670,7 @@ int main(int, char **) {
   testPlanRecovery();
   testRecover();
   testStatus();
+  testCsvLine();
   testLifetime();
   printf("%d passed, %d failed\n", g_pass, g_fail);
   return g_fail ? 1 : 0;

@@ -5,7 +5,7 @@
 #include <stddef.h>
 #include <math.h>
 
-#define FW_VERSION "1.2.0"
+#define FW_VERSION "1.2.1"
 #define SP500_SYMBOL "^GSPC"
 
 static const uint8_t  MAX_POSITIONS = 12;   // open lots; trimmed from 24 to fit the sale ledger in RAM
@@ -19,7 +19,7 @@ static const uint16_t LEDGER_WARN_AT    = 1800;  // 90% of the cap -> warn
 static const uint8_t  MAX_LOT_ALLOCS    = 12;    // a sale can touch every lot of one symbol (<= MAX_POSITIONS)
 static const uint16_t SALES_PAGE_MAX    = 8;     // records returned by one /api/sales page (keeps SalePage small)
 static const uint16_t LEDGER_LINE_MAX   = 1536;  // largest single record line (JSON, no '\n'): 12 allocs fit
-static const uint8_t  YEAR_BUCKETS      = 4;     // "this year" + previous years kept for the LCD/web summary
+static const uint8_t  YEAR_BUCKETS      = 6;     // "this year" + previous years kept for the LCD/web summary (the current year can never be evicted; older ones can, silently)
 
 enum ChartRange : uint8_t { RANGE_1D = 0, RANGE_5D = 1, RANGE_1M = 2, RANGE_COUNT = 3 };
 static constexpr uint16_t RANGE_CAP[RANGE_COUNT] = {80, 112, 24};   // stored points per range (constexpr so chartCapMax() can size scratch buffers)
