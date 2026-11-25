@@ -57,8 +57,29 @@ name-resolves - address the CYD directly by 192.168.1.161 if mDNS fails.
 
 | Directory | Git | Holds |
 |---|---|---|
-| `/data/Projects/sp500` | `.git` at that root, branch `main` | **both** project folders: `SP500_SmallTV/**` (live) and an old copy of `ESP32-CYD-SP500/**` from before the split |
-| `/data/Projects/sp500/ESP32-CYD-SP500` | its own `.git` (nested) | the CYD firmware only |
+| `/data/Projects/sp500` | `.git` at that root, branch `main` | **both** project folders: `SP500_SmallTV/**` (live) and an old copy of `ESP32-CYD-SP500/**` from before the split. Remote `gh` = `github.com/komkritc/S-P-500-Portfolio-Monitor-SmallTV-ESP8266-`; branch **`publish-smalltv`** (tracks `gh/main`) is that repo's shape: its root *is* the project, no `SP500_SmallTV/` prefix |
+| `/data/Projects/sp500/ESP32-CYD-SP500` | its own `.git` (nested) | the CYD firmware only. Remote `origin` = `github.com/komkritc/S-P-500-Portfolio-Monitor-CYD-ESP32` |
+
+Never `git checkout publish-smalltv` / `smalltv-only` **inside** `/data/Projects/sp500`:
+that tree has no `ESP32-CYD-SP500/` path, so the checkout would delete the CYD folder
+from the worktree. Use a worktree under /tmp (recipe below).
+
+### Publishing the SmallTV tree (used for fw 1.1.6, 2026-11-25)
+
+```bash
+git -C /data/Projects/sp500 fetch gh                       # gh/main may have GitHub-only commits
+git -C /data/Projects/sp500 worktree add -b publish-smalltv /tmp/stgh gh/main
+cd /tmp/stgh && find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+git -C /data/Projects/sp500 archive <commit> -- SP500_SmallTV | tar -x --strip-components=1 -C /tmp/stgh
+git add -A && git commit          # once per release step (the archive strips the folder prefix)
+git -C /data/Projects/sp500 push gh publish-smalltv:main
+git -C /data/Projects/sp500 worktree remove /tmp/stgh
+```
+
+Verify the published tree matches: archive the same commit to a second temp dir and
+`cmp` every `git ls-files` path. `gh auth status` claims the token is invalid, yet
+`git push` authenticated fine on 2026-11-25 (both repos) - try the push before
+re-authenticating.
 
 The CYD folder's own repo wins inside it, so `git status` there is clean while the same
 files show as modified from the parent. **Never `git add -A` in the parent** - it would
