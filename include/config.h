@@ -41,12 +41,15 @@ constexpr int16_t COL_QTY_R = 134, COL_NAV_R = 206, COL_PL_R = 272, COL_RET_R = 
 constexpr int16_t MK_Y = 36, MK_H = 30;              // price + change + badge
 
 // Realised screen (page 4, mirrors the SmallTV RealisedScreen)
-constexpr int16_t R_LBL_Y = 40, R_BIG_Y = 58;                         // all-time label / big number
-constexpr int16_t R_C1_X = 7,   R_C1_Y = 92,  R_C1_W = 150, R_C1_H = 46;   // THIS YEAR
-constexpr int16_t R_C2_X = 163, R_C2_Y = 92,  R_C2_W = 150, R_C2_H = 46;   // LIFETIME
-constexpr int16_t R_C3_X = 7,   R_C3_Y = 144, R_C3_W = 150, R_C3_H = 30;   // SALES
-constexpr int16_t R_C4_X = 163, R_C4_Y = 144, R_C4_W = 150, R_C4_H = 30;   // REVERSED
-constexpr int16_t R_LAST_Y = 178, R_LAST_H = 26;                      // last sale strip
+// Spacing tuned for the 320x240 band y32..205 (header .. nav bar): even gaps,
+// SALES/REVERSED pulled up so the last-sale strip keeps ~6 px of clearance
+// above the nav band (its ink used to touch the tab bar at y205).
+constexpr int16_t R_LBL_Y = 38, R_BIG_Y = 54;                         // all-time label / big number
+constexpr int16_t R_C1_X = 7,   R_C1_Y = 86,  R_C1_W = 150, R_C1_H = 46;   // THIS YEAR
+constexpr int16_t R_C2_X = 163, R_C2_Y = 86,  R_C2_W = 150, R_C2_H = 46;   // LIFETIME
+constexpr int16_t R_C3_X = 7,   R_C3_Y = 138, R_C3_W = 150, R_C3_H = 30;   // SALES
+constexpr int16_t R_C4_X = 163, R_C4_Y = 138, R_C4_W = 150, R_C4_H = 30;   // REVERSED
+constexpr int16_t R_LAST_Y = 174, R_LAST_H = 26;                      // last sale strip
 constexpr int16_t PBTN_Y = 69, PBTN_H = 29, PBTN_X = 7, PBTN_W = 102; // 1D/5D/1M
 constexpr int16_t PLOT_X = 38, PLOT_Y = 105, PLOT_W = 279, PLOT_H = 80;
 constexpr int16_t XLABEL_Y = 187;

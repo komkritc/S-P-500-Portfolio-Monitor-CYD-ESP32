@@ -22,3 +22,7 @@ web/gz_tmp/
 
 # boot-time log dump from the serial monitor, if you save one
 boot.log
+
+# host unit-test binaries built by tests/run_tests.py
+tests/test_core
+tests/test_sales

@@ -717,15 +717,15 @@ void drawRealDynamic() {
             Cfg::CARD, false, "--");
     txtSlot(S_RLTV, Cfg::R_C2_X + 9, Cfg::R_C2_Y + 22, F4, Cfg::MUTED,
             Cfg::CARD, false, "--");
-    txtSlot(S_RSALE, Cfg::R_C3_X + Cfg::R_C3_W - 9, Cfg::R_C3_Y + 5, F4,
+    txtSlot(S_RSALE, Cfg::R_C3_X + Cfg::R_C3_W - 9, Cfg::R_C3_Y + 4, FG18,
             Cfg::TEXT, Cfg::CARD, true, "0");
-    txtSlot(S_RREV, Cfg::R_C4_X + Cfg::R_C4_W - 9, Cfg::R_C4_Y + 5, F4,
+    txtSlot(S_RREV, Cfg::R_C4_X + Cfg::R_C4_W - 9, Cfg::R_C4_Y + 4, FG18,
             Cfg::TEXT, Cfg::CARD, true, "0");
-    txtSlot(S_RLS1, 10, Cfg::R_LAST_Y + 1, F2, Cfg::MUTED, Cfg::BG, false,
+    txtSlot(S_RLS1, 10, Cfg::R_LAST_Y + 3, F1, Cfg::MUTED, Cfg::BG, false,
             "no sales recorded");
-    txtSlot(S_RLS2, 310, Cfg::R_LAST_Y + 1, F2, Cfg::BG, Cfg::BG, true, "");
-    txtSlot(S_RLS3, 10, Cfg::R_LAST_Y + 15, F2, Cfg::BG, Cfg::BG, false, "");
-    txtSlot(S_RLS4, 310, Cfg::R_LAST_Y + 15, F2, Cfg::BG, Cfg::BG, true, "");
+    txtSlot(S_RLS2, 310, Cfg::R_LAST_Y + 3, F1, Cfg::BG, Cfg::BG, true, "");
+    txtSlot(S_RLS3, 10, Cfg::R_LAST_Y + 18, F1, Cfg::BG, Cfg::BG, false, "");
+    txtSlot(S_RLS4, 310, Cfg::R_LAST_Y + 18, F1, Cfg::BG, Cfg::BG, true, "");
     return;
   }
 
@@ -749,21 +749,21 @@ void drawRealDynamic() {
             Cfg::CARD, false, ls);
   }
 
-  txtFmt(S_RSALE, Cfg::R_C3_X + Cfg::R_C3_W - 9, Cfg::R_C3_Y + 5, F4, Cfg::TEXT,
-         Cfg::CARD, true, "%u", (unsigned)s.count);
-  txtFmt(S_RREV, Cfg::R_C4_X + Cfg::R_C4_W - 9, Cfg::R_C4_Y + 5, F4,
+  txtFmt(S_RSALE, Cfg::R_C3_X + Cfg::R_C3_W - 9, Cfg::R_C3_Y + 4, FG18,
+         Cfg::TEXT, Cfg::CARD, true, "%u", (unsigned)s.count);
+  txtFmt(S_RREV, Cfg::R_C4_X + Cfg::R_C4_W - 9, Cfg::R_C4_Y + 4, FG18,
          s.reversed ? Cfg::YELLOW : Cfg::TEXT, Cfg::CARD, true, "%u",
          (unsigned)s.reversed);
 
   if (s.hasLast) {
     char lab[40];
     snprintf(lab, sizeof(lab), "LAST SALE %s", s.lastId);
-    txtSlot(S_RLS1, 10, Cfg::R_LAST_Y + 1, F2, Cfg::MUTED, Cfg::BG, false, lab);
+    txtSlot(S_RLS1, 10, Cfg::R_LAST_Y + 3, F1, Cfg::MUTED, Cfg::BG, false, lab);
     dateText(b, sizeof(b), s.lastDate);
-    txtSlot(S_RLS2, 310, Cfg::R_LAST_Y + 1, F2, Cfg::MUTED, Cfg::BG, true, b);
-    txtFmt(S_RLS3, 10, Cfg::R_LAST_Y + 13, F2, Cfg::TEXT, Cfg::BG, false,
+    txtSlot(S_RLS2, 310, Cfg::R_LAST_Y + 3, F1, Cfg::MUTED, Cfg::BG, true, b);
+    txtFmt(S_RLS3, 10, Cfg::R_LAST_Y + 18, F1, Cfg::TEXT, Cfg::BG, false,
            "%.12s", s.lastSymbol);
-    txtFmt(S_RLS4, 310, Cfg::R_LAST_Y + 13, F2,
+    txtFmt(S_RLS4, 310, Cfg::R_LAST_Y + 18, F1,
            s.lastRealised >= 0 ? Cfg::GREEN : Cfg::RED, Cfg::BG, true, "%s",
            numBuf(2, s.lastRealised, true));
   }
