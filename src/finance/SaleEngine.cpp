@@ -304,6 +304,20 @@ bool preview(const Position *pos, uint8_t n, const PortfolioMeta &m, const SaleR
     if (lot->qty < qty - EPS * (lot->qty > 1 ? lot->qty : 1)) return failf(pv, S_LIT("lot has only %.8g"), lot->qty);
     addAlloc(pv, *lot, qty);
   } else if (req.method == SALE_FIFO) {
+    // True FIFO: consume the oldest purchase date first, regardless of the order lots were
+    // added to the portfolio. ISO dates compare lexicographically; ties break on lot id
+    // (insertion order). Legacy lots without a date ("") sort oldest, so they are still sold.
+    // Insertion sort: c <= MAX_POSITIONS (12), so this is cheap and stable-enough via id tie.
+    for (uint8_t i = 1; i < c; i++) {
+      uint16_t key = lots[i];
+      int8_t j = (int8_t)i - 1;
+      while (j >= 0) {
+        const Position &a = pos[lots[j]], &b = pos[key];
+        int cmp = strcmp(a.date, b.date);
+        if (cmp > 0 || (cmp == 0 && a.id > b.id)) { lots[j + 1] = lots[j]; j--; } else break;
+      }
+      lots[j + 1] = key;
+    }
     double need = qty;
     for (uint8_t k = 0; k < c && need > 0; k++) {
       const Position &lot = pos[lots[k]];

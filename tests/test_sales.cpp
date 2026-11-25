@@ -77,6 +77,29 @@ static void testPreview() {
   CHECK_NEAR(pv.realised, 74390 - 72200, 1e-6);             // 2190
   CHECK(pv.token != 0 && pv.token == sale::previewToken(pos, n, m));
 
+  // 1b. FIFO follows the purchase DATE, not insertion order: newest lot added first must be
+  // sold last; same-date lots tie-break on lot id (insertion order).
+  Position p2[MAX_POSITIONS]; uint8_t n2 = 0; PortfolioMeta m2; memset(&m2, 0, sizeof m2);
+  addLot(p2, n2, m2, "^GSPC", "2026-05-01", 4, 6300);   // id 1: newest, added first
+  addLot(p2, n2, m2, "^GSPC", "2026-01-01", 3, 6000);   // id 2: oldest date
+  addLot(p2, n2, m2, "^GSPC", "2026-01-01", 2, 6050);   // id 3: same date as id 2, later id
+  SaleRequest g = R("^GSPC", "2026-11-19");
+  g.qty = 7; g.price = 6400;
+  CHECK(sale::preview(p2, n2, m2, g, now, pv) && pv.ok);
+  CHECK(pv.nAlloc == 3 && pv.alloc[0].lot == 2 && pv.alloc[1].lot == 3 && pv.alloc[2].lot == 1);
+  CHECK(pv.alloc[2].before == 4 && pv.alloc[2].after == 2);
+  CHECK_NEAR(pv.cost, 3 * 6000 + 2 * 6050 + 2 * 6300, 1e-6);
+
+  // 1c. legacy lot with no date sorts oldest and is still sellable
+  Position p3[MAX_POSITIONS]; uint8_t n3 = 0; PortfolioMeta m3; memset(&m3, 0, sizeof m3);
+  addLot(p3, n3, m3, "^GSPC", "2026-03-01", 2, 6200);
+  addLot(p3, n3, m3, "^GSPC", "", 1, 5900);             // legacy row, date cleared on load
+  SaleRequest h = R("^GSPC", "2026-11-19");
+  h.qty = 1; h.price = 6400;
+  CHECK(sale::preview(p3, n3, m3, h, now, pv) && pv.ok);
+  CHECK(pv.nAlloc == 1 && pv.alloc[0].lot == 2);
+  CHECK_NEAR(pv.cost, 5900, 1e-6);
+
   // 2. specific lot: only the chosen lot, its own cost basis
   SaleRequest s = R("^GSPC", "2026-11-19");
   s.method = SALE_SPECIFIC; s.lotId = 2; s.qty = 2; s.price = 6200;
