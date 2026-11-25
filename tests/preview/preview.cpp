@@ -249,6 +249,42 @@ int main(int argc, char **argv) {
     snprintf(n, sizeof n, "%s_p4_realised", sc.n); showFrame(n);
   }
 
+  // Bollinger Bands on the LCD Market chart (fw 1.1.8, web Settings -> "BB on the LCD chart").
+  // One frame per range; the 1M frame asks for SMA 50 so the n/2 clamp is visible in its corner
+  // tag, and a final frame with the switch off proves the setting really drives the plot.
+  build(a, S_NORMAL, NOW_CLOSED);
+  UI::setScreen(UI::SC_CHART);
+  a.settings.bbLcd = 1;
+  const int bbp[3] = {10, 20, 50};
+  static uint16_t bbOn[Cfg::SCR_W * Cfg::SCR_H];
+  for (int r = 0; r < 3; r++) {
+    a.settings.bbLcdP = (uint8_t)bbp[r];
+    UI::setRange(r);
+    snprintf(n, sizeof n, "bbon_chart_%s_p%d", rangeLabel(r), bbp[r]);
+    showFrame(n);
+    if (r == 2) memcpy(bbOn, tft.fb, sizeof bbOn);
+  }
+  a.settings.bbLcd = 0;
+  a.settings.bbLcdP = 20;
+  showFrame("bboff_chart_1mo");
+  { size_t green = 0, red = 0, diff = 0;
+    for (int y = Cfg::PLOT_Y; y <= Cfg::PLOT_Y + Cfg::PLOT_H; y++)
+      for (int x = Cfg::PLOT_X; x <= Cfg::PLOT_X + Cfg::PLOT_W; x++)
+        if (bbOn[y * Cfg::SCR_W + x] != tft.fb[y * Cfg::SCR_W + x]) diff++;
+    if (diff < 40) { printf("  PROBLEM bb: bands not drawn (%zu plot pixels differ)\n", diff); g_problems++; }
+    else printf("bb: %zu plot pixels drawn by the bands + candles\n", diff);
+    // Candlesticks are per-bar coloured, so a real bar chart shows both directions in the same
+    // frame; the plain line chart is a single colour and would leave one of these at zero.
+    for (int y = Cfg::PLOT_Y; y <= Cfg::PLOT_Y + Cfg::PLOT_H; y++)
+      for (int x = Cfg::PLOT_X; x <= Cfg::PLOT_X + Cfg::PLOT_W; x++) {
+        const uint16_t p = bbOn[y * Cfg::SCR_W + x];
+        if (p == Cfg::GREEN) green++; else if (p == Cfg::RED) red++;
+      }
+    if (green < 20 || red < 20) {
+      printf("  PROBLEM bb: candles not drawn (green %zu red %zu)\n", green, red); g_problems++;
+    } else printf("bb: candles %zu green / %zu red bar pixels\n", green, red);
+  }
+
   // incremental path: change a quote and let the 4 Hz cache repaint without a
   // full invalidate; the result must match a fresh render of the same state.
   build(a, S_NORMAL, NOW_CLOSED);

@@ -5,7 +5,7 @@
 #include <stddef.h>
 #include <math.h>
 
-#define FW_VERSION "1.1.7"
+#define FW_VERSION "1.1.8"
 #define SP500_SYMBOL "^GSPC"
 
 static const uint8_t  MAX_POSITIONS = 12;   // open lots; trimmed from 24 to fit the sale ledger in RAM
@@ -22,8 +22,14 @@ static const uint16_t LEDGER_LINE_MAX   = 1536;  // largest single record line (
 static const uint8_t  YEAR_BUCKETS      = 4;     // "this year" + previous years kept for the LCD/web summary
 
 enum ChartRange : uint8_t { RANGE_1D = 0, RANGE_5D = 1, RANGE_1M = 2, RANGE_COUNT = 3 };
-static const uint16_t RANGE_CAP[RANGE_COUNT] = {80, 112, 24};   // stored points per range
+static constexpr uint16_t RANGE_CAP[RANGE_COUNT] = {80, 112, 24};   // stored points per range (constexpr so chartCapMax() can size scratch buffers)
 static const uint16_t CHART_POOL = 80 + 112 + 24;
+
+// Largest RANGE_CAP - the size a single-range scratch buffer (bands, merges) must be.
+// C++11 constexpr, so it can size static arrays in the display code.
+constexpr uint16_t chartCapMax(uint8_t r = RANGE_COUNT) {
+  return r == 0 ? 0 : (RANGE_CAP[r - 1] > chartCapMax(r - 1) ? RANGE_CAP[r - 1] : chartCapMax(r - 1));
+}
 
 enum MarketStatus : uint8_t { MS_UNKNOWN = 0, MS_OPEN, MS_CLOSED, MS_PRE };
 enum QuoteState   : uint8_t { Q_FRESH = 0, Q_STALE, Q_MISSING, Q_INVALID };
@@ -134,6 +140,8 @@ struct Settings {
   uint8_t  charts;            // chart ranges the LCD Market page cycles through: bit0 1D, bit1 5D, bit2 1M (default 7)
   uint8_t  pages;             // LCD pages in the rotation: bit0 Portfolio, bit1 Positions, bit2 Market, bit3 Realised P/L (default 15)
   uint8_t  backlight;         // LCD backlight percent (BL_MIN_PCT..BL_MAX_PCT, see above)
+  uint8_t  bbLcd;             // Bollinger Bands on the LCD Market chart: 0 off, 1 on
+  uint8_t  bbLcdP;            // their SMA period on the panel: 10, 20 or 50 (clamped to n/2 per range)
   uint8_t  tzMode;            // 0 = exchange (America/New_York), 1 = fixed local offset
   int16_t  localOffsetMin;
   char     hostname[24];

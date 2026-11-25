@@ -4,7 +4,7 @@
 #include <stdio.h>
 
 const Limits LIM_PORTFOLIO = {15, 3600}, LIM_QUOTE = {15, 3600}, LIM_CHART = {60, 3600}, LIM_ROTATE = {3, 120}, LIM_OFFSET = {-720, 840}, LIM_PAGES = {1, 15}, LIM_CHARTS = {1, 7},
-             LIM_BACKLIGHT = {BL_MIN_PCT, BL_MAX_PCT};
+             LIM_BACKLIGHT = {BL_MIN_PCT, BL_MAX_PCT}, LIM_BBLCD = {0, 1}, LIM_BBLCDP = {BB_P_MIN, BB_P_MAX};
 
 bool validHostname(const char *h) {
   size_t n = strlen(h);
@@ -38,6 +38,13 @@ bool settingsApply(Settings &s, const FlatJson &p, char *err, size_t en, bool *h
   if (pr) n.pageRotateS = (uint16_t)v;
   if (!getInt(p, "backlight", LIM_BACKLIGHT, v, pr, err, en)) return false;   // LCD dim, applied live
   if (pr) n.backlight = (uint8_t)v;
+  if (!getInt(p, "bbLcd", LIM_BBLCD, v, pr, err, en)) return false;           // Bollinger Bands on the LCD chart
+  if (pr) n.bbLcd = (uint8_t)v;
+  if (!getInt(p, "bbLcdP", LIM_BBLCDP, v, pr, err, en)) return false;
+  // a small allow-list, not just a range: 10 / 20 / 50 are the periods that make sense on
+  // an 80 / 112 / 24 bar series (the panel clamps further to n/2)
+  if (pr && v != 10 && v != 20 && v != 50) { snprintf(err, en, "bbLcdP must be 10, 20 or 50"); return false; }
+  if (pr) n.bbLcdP = (uint8_t)v;
   if (!getInt(p, "localOffsetMin", LIM_OFFSET, v, pr, err, en)) return false;
   if (pr) n.localOffsetMin = (int16_t)v;
   if (!getInt(p, "pages", LIM_PAGES, v, pr, err, en)) return false;      // bitmask, at least one page must stay on
@@ -95,6 +102,7 @@ void settingsWrite(JsonWriter &w, const Settings &s, bool secrets, bool withLimi
   w.kInt("portfolioRefreshS", s.portfolioRefreshS).kInt("quoteRefreshS", s.quoteRefreshS).kInt("chartRefreshS", s.chartRefreshS)
    .kInt("pageRotateS", s.pageRotateS).kInt("pages", s.pages).kInt("charts", s.charts).kStr("defaultRange", rangeName(s.defaultRange))
    .kInt("backlight", s.backlight)
+   .kInt("bbLcd", s.bbLcd).kInt("bbLcdP", s.bbLcdP)
    .kStr("tzMode", s.tzMode ? "local" : "exchange").kInt("localOffsetMin", s.localOffsetMin).kStr("hostname", s.hostname);
   if (secrets) w.kStr("adminPass", s.adminPass); else w.kBool("adminPassSet", s.adminPass[0] != 0);
   if (withLimits) {
@@ -102,6 +110,7 @@ void settingsWrite(JsonWriter &w, const Settings &s, bool secrets, bool withLimi
     limit(w, "portfolioRefreshS", LIM_PORTFOLIO); limit(w, "quoteRefreshS", LIM_QUOTE); limit(w, "chartRefreshS", LIM_CHART);
     limit(w, "pageRotateS", LIM_ROTATE); limit(w, "localOffsetMin", LIM_OFFSET); limit(w, "pages", LIM_PAGES); limit(w, "charts", LIM_CHARTS);
     limit(w, "backlight", LIM_BACKLIGHT);
+    limit(w, "bbLcd", LIM_BBLCD); limit(w, "bbLcdP", LIM_BBLCDP);
     w.endObj();
   }
   w.endObj();
@@ -111,7 +120,7 @@ bool settingsLoadJson(Settings &s, const char *json, size_t len) {
   FlatJson p;
   if (!p.parse(json, len)) return false;
   // Field by field so one bad value does not discard the rest.
-  const char *keys[] = {"portfolioRefreshS", "quoteRefreshS", "chartRefreshS", "pageRotateS", "backlight", "pages", "charts", "defaultRange", "tzMode", "localOffsetMin", "hostname", "adminPass"};
+  const char *keys[] = {"portfolioRefreshS", "quoteRefreshS", "chartRefreshS", "pageRotateS", "backlight", "bbLcd", "bbLcdP", "pages", "charts", "defaultRange", "tzMode", "localOffsetMin", "hostname", "adminPass"};
   for (const char *k : keys) {
     char buf[200]; char tmp[96];
     int n = snprintf(buf, sizeof buf, "{\"%s\":%s%s%s}", k, p.isStr(k) ? "\"" : "", p.str(k), p.isStr(k) ? "\"" : "");

@@ -238,6 +238,7 @@ If the device cannot join your Wi-Fi (or has no saved network) it starts its own
 <label>LCD brightness (%)<input id="s-backlight" type="range" min="5" max="100" step="1"><output class="blv" id="s-blv"></output></label>
 <div class="pg"><span class="l2">LCD pages to show</span><label><input type="checkbox" class="pgc" data-b="1"> 1 Portfolio</label><label><input type="checkbox" class="pgc" data-b="4"> 2 Market</label><label><input type="checkbox" class="pgc" data-b="2"> 3 Positions</label><label><input type="checkbox" class="pgc" data-b="8"> 4 Realised P/L</label></div>
 <div class="pg"><span class="l2">Market page charts</span><label><input type="checkbox" class="chc" data-b="1"> 1D</label><label><input type="checkbox" class="chc" data-b="2"> 5D</label><label><input type="checkbox" class="chc" data-b="4"> 1M</label></div>
+<div class="pg"><span class="l2">BB + candles on the LCD chart</span><label title="Bollinger Bands (SMA + 2 sigma) on the panel's Market chart; the same switch draws that chart as candlesticks. The panel clamps the period to half its stored bars, so 1M draws fewer bands than 5D."><input type="checkbox" id="s-bbLcd"> on</label><select id="s-bbLcdP" title="SMA period on the panel; the corner of the plot shows the period actually used"><option value="10">SMA 10</option><option value="20">SMA 20</option><option value="50">SMA 50</option></select></div>
 <label>Default chart range<select id="s-defaultRange"><option value="1d">1D</option><option value="5d">5D</option><option value="1mo">1M</option></select></label>
 <label>Time zone<select id="s-tzMode"><option value="exchange">Exchange (America/New_York)</option><option value="local">Local (fixed UTC offset)</option></select></label>
 <label id="s-tzp">Zone preset<select id="s-tzPreset"><option value="">Custom / other</option><option value="420">Bangkok, Thailand (ICT, UTC+7)</option><option value="480">Singapore, KL, HK, Taipei, Beijing (UTC+8)</option><option value="540">Tokyo, Seoul (UTC+9)</option><option value="330">India (IST, UTC+5:30)</option><option value="0">UTC / GMT</option></select></label>
@@ -659,7 +660,7 @@ $('w-fg').onclick=function(){if(!typed('FORGET','Forget the saved Wi-Fi network?
 const NK=['portfolioRefreshS','quoteRefreshS','chartRefreshS','pageRotateS','backlight','localOffsetMin'];
 function fS(s){
 NK.forEach(k=>{const i=$('s-'+k);i.value=s[k];if(s.limits&&s.limits[k]){i.min=s.limits[k][0];i.max=s.limits[k][1];i.title='Allowed: '+s.limits[k][0]+'..'+s.limits[k][1]}});
-document.querySelectorAll('.pgc').forEach(c=>c.checked=!!((s.pages==null?15:s.pages)&+c.dataset.b));document.querySelectorAll('.chc').forEach(c=>c.checked=!!((s.charts==null?7:s.charts)&+c.dataset.b));$('s-defaultRange').value=s.defaultRange;$('s-tzMode').value=s.tzMode;$('s-hostname').value=s.hostname;
+document.querySelectorAll('.pgc').forEach(c=>c.checked=!!((s.pages==null?15:s.pages)&+c.dataset.b));document.querySelectorAll('.chc').forEach(c=>c.checked=!!((s.charts==null?7:s.charts)&+c.dataset.b));$('s-defaultRange').value=s.defaultRange;$('s-tzMode').value=s.tzMode;$('s-hostname').value=s.hostname;$('s-bbLcd').checked=!!s.bbLcd;$('s-bbLcdP').value=[10,20,50].includes(+s.bbLcdP)?+s.bbLcdP:20;
 $('s-adminPass').value='';$('s-clr').checked=false;$('s-aps').textContent=s.adminPassSet?'An admin password is set.':'No admin password set (open access).';tzv();blv()}
 const tzv=()=>{const l=$('s-tzMode').value=='local';$('s-off').style.display=l?'':'none';
 const v=+$('s-localOffsetMin').value;const m=l?TZP.find(z=>z==v):undefined;$('s-tzPreset').value=m===undefined?'':String(m);};
@@ -675,13 +676,18 @@ $('s-backlight').onchange=()=>{blv();const v=+$('s-backlight').value;
   api('/api/settings',{backlight:v}).then(()=>toast('LCD brightness '+v+' %')).catch(e=>toast('Brightness not applied: '+e.message,1))};
 $('s-tzPreset').onchange=()=>{const v=$('s-tzPreset').value;if(v==='')return;
 $('s-tzMode').value='local';$('s-localOffsetMin').value=v;tzv()};
+// Bollinger Bands on the panel's chart: applied at once (the LCD plot repaints within a second),
+// and also sent with Save. This is not the browser overlay on the Market tab - that one is per
+// browser in localStorage; this switch is stored on the device and changes what the LCD draws.
+$('s-bbLcd').onchange=$('s-bbLcdP').onchange=()=>{const on=$('s-bbLcd').checked,p=+$('s-bbLcdP').value;
+  api('/api/settings',{bbLcd:on?1:0,bbLcdP:p}).then(()=>toast(on?'LCD chart: bands + candles, SMA '+p:'LCD chart: bands + candles off')).catch(e=>toast('BB not applied: '+e.message,1))};
 async function ldSet(){try{fS(applyS(await api('/api/settings')))}catch(e){$('s-err').textContent=e.message}}
 $('sf').onsubmit=async ev=>{ev.preventDefault();
 const er=$('s-err'),b={},L=(S&&S.limits)||{};er.textContent='';er.className='er';
 document.querySelectorAll('#sf input').forEach(i=>i.classList.remove('bad'));
 for(const k of NK){if(k=='localOffsetMin'&&$('s-tzMode').value!='local')continue;const i=$('s-'+k),v=i.value.trim(),l=L[k]||[-1e9,1e9];
 if(!/^-?\d+$/.test(v)||+v<l[0]||+v>l[1]){i.classList.add('bad');i.focus();return er.textContent=k+' must be an integer '+l[0]+'..'+l[1]}b[k]=+v}
-let pg=0;document.querySelectorAll('.pgc').forEach(c=>{if(c.checked)pg|=+c.dataset.b});if(!pg)return er.textContent='Tick at least one LCD page';b.pages=pg;let ch=0;document.querySelectorAll('.chc').forEach(c=>{if(c.checked)ch|=+c.dataset.b});if(!ch)return er.textContent='Tick at least one chart range';b.charts=ch;b.defaultRange=$('s-defaultRange').value;b.tzMode=$('s-tzMode').value;
+let pg=0;document.querySelectorAll('.pgc').forEach(c=>{if(c.checked)pg|=+c.dataset.b});if(!pg)return er.textContent='Tick at least one LCD page';b.pages=pg;let ch=0;document.querySelectorAll('.chc').forEach(c=>{if(c.checked)ch|=+c.dataset.b});if(!ch)return er.textContent='Tick at least one chart range';b.charts=ch;b.bbLcd=$('s-bbLcd').checked?1:0;b.bbLcdP=+$('s-bbLcdP').value;b.defaultRange=$('s-defaultRange').value;b.tzMode=$('s-tzMode').value;
 const hn=$('s-hostname').value.trim();
 if(!/^[A-Za-z0-9]([A-Za-z0-9-]{0,29}[A-Za-z0-9])?$/.test(hn)){$('s-hostname').classList.add('bad');return er.textContent='hostname: 1..31 letters, digits or hyphens (not at the ends)'}
 b.hostname=hn;const ap=$('s-adminPass').value;

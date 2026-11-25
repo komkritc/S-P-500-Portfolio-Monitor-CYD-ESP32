@@ -42,6 +42,12 @@ drawn too (`docs/img/lcd-offline.png`), as is the boot banner.
 * **Dimmable panel.** **LCD brightness (%)** on the web Settings tab dims the backlight the
   moment you let go of the slider (5 kHz PWM, 5 % floor so the screen can never go dark for
   good); the level is kept in flash and survives reboots and OTA updates.
+* **Technical chart on glass.** One Settings switch (**BB + candles on the LCD chart**) turns the
+  panel's Market page into a **candlestick** chart with **Bollinger Bands** (SMA 10 / 20 / 50, fixed
+  2 sigma): bodies and wicks come from the stored open / high / low, the bands from the closes, so the
+  panel and the web chart tell the same story. The period is clamped to half the bars the panel keeps
+  (1M stores 24 daily bars) and the plot prints the period it actually used; with the switch off the
+  chart is the plain line and fill it always was.
 * **Portfolio on glass:** NAV, unrealised P/L in THB and %, invested capital in whole baht,
   position count, a live `^GSPC` card with open / high / low / prev, and a separate Realised
   P/L page (all-time, this year, lifetime, sales, reversals, last sale).

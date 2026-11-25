@@ -9,6 +9,7 @@
 #include "TouchUI.h"
 #include "core/AppState.h"
 #include "core/MarketClock.h"
+#include "finance/ChartData.h"
 #include "finance/MarketData.h"
 #include <math.h>
 #include <stdarg.h>
@@ -771,6 +772,11 @@ void drawRealDynamic() {
 // ---- chart ---------------------------------------------------------------
 char g_pbtnNames[3][8] = {"1D", "5D", "1M"};
 
+// Bollinger Band scratch for the LCD plot (sized for the largest stored range: 5D = 112 bars,
+// ~1.3 KB DRAM for all three). Written by bollinger() on every plot repaint while the setting
+// is on; the leading p-1 entries stay NaN and are never drawn.
+float g_bbMid[chartCapMax()], g_bbUp[chartCapMax()], g_bbDn[chartCapMax()];
+
 // the 1D / 5D / 1M labels: Inter 18 (a size down from the old font 4), font 4
 // then font 2 if a label is ever too wide for its card
 uint8_t fitBtn(const char* s, int maxW) {
@@ -816,11 +822,46 @@ void drawPlot() {
     return;
   }
   const int n = c.n;
+
+  // Bollinger Bands on the panel (web Settings -> "BB + candles on the LCD chart"). The period is the
+  // setting, clamped to n/2: 1M stores only 24 daily bars, so a 50-period band would mostly
+  // cover its own window - on the panel a band is only honest if the window is well under half
+  // the series. Below 6 bars nothing is drawn at all. The corner tag states the period actually
+  // used, so the screen never claims a band it did not draw.
+  uint8_t bbP = 0;
+  if (g_app.settings.bbLcd && n >= 6) {
+    const int p = (int)g_app.settings.bbLcdP < n / 2 ? (int)g_app.settings.bbLcdP : n / 2;
+    if (p >= 2) bbP = (uint8_t)p;
+  }
+  const uint16_t bbMade = bbP ? bollinger(c.v, n, bbP, g_bbMid, g_bbUp, g_bbDn) : 0;
+  const int bbFrom = n - (int)bbMade;          // first index with a complete band
+
+  // Candlesticks on the panel: with Bollinger Bands on, the Market page is being read as a
+  // technical chart, so the same OHLC the web dashboard draws becomes candles here too - one
+  // switch, one visual language, and the bands sit on bars that already show open/high/low.
+  // A series whose bars carry no wick (h == l, e.g. a close-only aggregation) keeps the line +
+  // fill, because candles without bodies would be nothing but dots.
+  bool candles = false;
+  if (bbMade && c.o && c.h && c.l) {
+    int wick = 0;
+    for (int i = 0; i < n; i++)
+      if (c.h[i] > c.l[i] && c.h[i] >= c.o[i] && c.l[i] <= c.o[i] && ++wick >= 4) { candles = true; break; }
+  }
+
   float mn = 1e30f, mx = -1e30f;
   for (int i = 0; i < n; i++) {
     if (c.v[i] < mn) mn = c.v[i];
     if (c.v[i] > mx) mx = c.v[i];
+    if (candles) {                              // the wicks have to fit inside the plot too
+      if (c.h[i] > mx) mx = c.h[i];
+      if (c.l[i] < mn) mn = c.l[i];
+    }
   }
+  if (bbMade)                                    // the bands must fit inside the plot too
+    for (int i = bbFrom; i < n; i++) {
+      if (g_bbUp[i] > mx) mx = g_bbUp[i];
+      if (g_bbDn[i] < mn) mn = g_bbDn[i];
+    }
   const float pad = (mx - mn) * 0.06f + 0.01f;
   mn -= pad; mx += pad;
   const auto py = [&](float v) {
@@ -903,6 +944,38 @@ void drawPlot() {
   const bool up = isNum(st.change) ? (st.change >= 0) : (c.v[n - 1] >= c.v[0]);
   const uint16_t col = up ? Cfg::GREEN : Cfg::RED;
   const uint16_t dim = blend565(col, Cfg::BG, 46);
+  if (candles) {
+    // One bar per stored point: a wick from low to high, a filled body open -> close,
+    // coloured per bar (green up, red down). Bodies are widened by the average pitch but
+    // always leave a gap, so 112 bars in 279 px still read as a row of separate bars.
+    int bw = 1;
+    if (n > 1) {
+      const int pitch = (abs((int)tX(n - 1) - (int)tX(0))) / (n - 1);
+      bw = pitch > 1 ? pitch - 1 : 1;
+      if (bw > 9) bw = 9;                       // 1M (24 bars) would otherwise be fat blocks
+    }
+    const int yTop = Cfg::PLOT_Y, yBot = Cfg::PLOT_Y + Cfg::PLOT_H;
+    for (int i = 0; i < n; i++) {
+      float o = c.o[i], hh = c.h[i], ll = c.l[i];
+      if (!isNum(o)) o = c.v[i];                // a bar with no open degenerates to a line
+      if (!isNum(hh) || hh < ll) { hh = c.v[i]; ll = c.v[i]; }
+      const bool g = c.v[i] >= o;
+      const uint16_t cc = g ? Cfg::GREEN : Cfg::RED;
+      int yh = py(hh), yl = py(ll);
+      if (yh > yl) { const int t = yh; yh = yl; yl = t; }      // py inverts: high -> small y
+      // body: the higher of open/close is the top pixel row, the lower is the bottom.
+      // A doji (open == close) still gets one row, so the body never disappears.
+      const float bTop = o > c.v[i] ? o : c.v[i], bBot = o > c.v[i] ? c.v[i] : o;
+      int y1 = py(bTop), y2 = py(bBot);
+      if (y2 < y1) { const int t = y2; y2 = y1; y1 = t; }
+      y1 = constrain(y1, yTop, yBot); y2 = constrain(y2, yTop, yBot);
+      if (y2 - y1 < 1 && y2 < yBot) y2 = y1 + 1;
+      yh = constrain(yh, yTop, yBot); yl = constrain(yl, yTop, yBot);
+      const int x = tX(i), x0 = bw > 1 ? x - bw / 2 : x;
+      tft.drawFastVLine(x, yh, yl - yh + 1, cc);
+      for (int k = 0; k < bw; k++) tft.drawFastVLine(x0 + k, y1, y2 - y1 + 1, cc);
+    }
+  } else {
   int16_t px0 = -1, py0 = 0;
   for (int i = 0; i < n; i++) {
     const int16_t X = tX(i), Y = py(c.v[i]);
@@ -920,6 +993,45 @@ void drawPlot() {
     px0 = X; py0 = Y;
   }
   tft.fillCircle(px0, py0, 2, col);
+  }
+
+  // ---- Bollinger Bands, drawn after the price line and its fill (same layer order as the
+  // web chart) so they stay visible. The panel has no alpha blending, so the band interior is
+  // painted as a dithered wash: every other pixel of a checkerboard, phase fixed by x+y, which
+  // reads as a soft band without hiding the fill under the price line.
+  if (bbMade) {
+    const uint16_t wash = blend565(Cfg::CYAN, Cfg::BG, 60);   // faintest: interior only
+    const uint16_t edge = blend565(Cfg::CYAN, Cfg::BG, 190);  // upper / lower line
+    const uint16_t midc = blend565(Cfg::CYAN, Cfg::BG, 120);  // the SMA, dotted
+    const int16_t yTop = Cfg::PLOT_Y, yBot = Cfg::PLOT_Y + Cfg::PLOT_H;
+    for (int i = bbFrom; i < n; i++) {
+      const int16_t x = tX(i);
+      int ya = py(g_bbUp[i]), yb = py(g_bbDn[i]);
+      if (ya < yTop) ya = yTop;
+      if (yb > yBot) yb = yBot;
+      for (int y = ya; y <= yb; y++)
+        if (((x + y) & 1) == 0) tft.drawFastVLine(x, y, 1, wash);
+    }
+    for (int i = bbFrom + 1; i < n; i++) {
+      tft.drawLine(tX(i - 1), py(g_bbUp[i - 1]), tX(i), py(g_bbUp[i]), edge);
+      tft.drawLine(tX(i - 1), py(g_bbDn[i - 1]), tX(i), py(g_bbDn[i]), edge);
+    }
+    for (int i = bbFrom; i < n; i++) {           // no dash primitive: punch dots along the SMA
+      const int x0 = tX(i - 1 < bbFrom ? bbFrom : i - 1), y0 = py(g_bbMid[i - 1 < bbFrom ? bbFrom : i - 1]);
+      const int x1 = tX(i), y1 = py(g_bbMid[i]);
+      const int steps = abs(x1 - x0) + abs(y1 - y0);
+      for (int s = 3; s <= steps; s += 3) {
+        const int x = x0 + (x1 - x0) * s / steps, y = y0 + (y1 - y0) * s / steps;
+        if (y >= yTop && y <= yBot) tft.drawFastVLine(x, y, 1, midc);
+      }
+    }
+    char tg[10];
+    snprintf(tg, sizeof(tg), "BB %d", (int)bbP);   // sigma is fixed on the panel (Cfg plot is only 80 px tall)
+    useFont(F1);
+    tft.setTextColor(Cfg::MUTED, Cfg::BG);
+    const int tw = (int)tft.textWidth(tg);
+    tft.drawString(tg, Cfg::PLOT_X + Cfg::PLOT_W - tw - 1, Cfg::PLOT_Y + 1, 1);
+  }
 }
 
 uint32_t plotSig() {
@@ -1061,6 +1173,10 @@ void invalidate() {
   drawHeader();
   drawNav();
 }
+
+// Repaint the Market chart only - used when a setting that changes the plot itself arrives from
+// the web UI (Bollinger Bands). No full-screen flash: the next UI::update() redraws the plot.
+void invalidateChart() { g_lastPlot = 0; }
 
 void scrollPos(int dir) {
   g_posPage += dir;

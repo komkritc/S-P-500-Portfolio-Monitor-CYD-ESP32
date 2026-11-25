@@ -394,6 +394,43 @@ static void testChartData() {
   CHECK(downsampleOHLC(t, vo, vh, vl, v, 300, at, ao, ah, al, ac, 2) == 2 && at[1] == t[299]);
 }
 
+static void testBollinger() {
+  // hand-checkable case: closes 1..10, SMA(5) at index 4 is 3, population sd = sqrt(11-9) = sqrt(2)
+  float v[10], mid[10], up[10], dn[10];
+  for (int i = 0; i < 10; i++) v[i] = (float)(i + 1);
+  CHECK(bollinger(v, 10, 5, mid, up, dn) == 6);
+  for (int i = 0; i < 4; i++) CHECK(isnan(mid[i]) && isnan(up[i]) && isnan(dn[i]));   // leading p-1 have no band
+  CHECK_NEAR(mid[4], 3.0, 1e-5); CHECK_NEAR(up[4], 3.0 + 2.0 * sqrt(2.0), 1e-3); CHECK_NEAR(dn[4], 3.0 - 2.0 * sqrt(2.0), 1e-3);
+  CHECK_NEAR(mid[9], 8.0, 1e-5);
+  // matches a naive O(n*p) reference on a wiggly series (same maths as the browser overlay)
+  float w[140], m2[140], u2[140], d2[140], m3[140], u3[140], d3[140];
+  for (int i = 0; i < 140; i++) w[i] = 100.0f + 8.0f * sinf(i * 0.31f) + (i % 7) - 3.0f;
+  const uint16_t made = bollinger(w, 140, 20, m2, u2, d2);
+  CHECK(made == 121);
+  for (int i = 19; i < 140; i++) {
+    double s = 0, q = 0;
+    for (int j = i - 19; j <= i; j++) { s += w[j]; q += (double)w[j] * w[j]; }
+    const double mm = s / 20, sd = sqrt(q / 20 - mm * mm);
+    CHECK_NEAR(m2[i], mm, 1e-3); CHECK_NEAR(u2[i], mm + 2 * sd, 2e-3); CHECK_NEAR(d2[i], mm - 2 * sd, 2e-3);
+    CHECK(u2[i] >= m2[i] && d2[i] <= m2[i]);
+  }
+  for (int i = 0; i < 19; i++) CHECK(isnan(m2[i]));
+  // flat series: sd 0, the three lines coincide (never a fake spread)
+  for (int i = 0; i < 140; i++) w[i] = 42.5f;
+  CHECK(bollinger(w, 140, 20, m3, u3, d3) == 121);
+  for (int i = 19; i < 140; i++) { CHECK_NEAR(m3[i], 42.5, 1e-5); CHECK_NEAR(u3[i], 42.5, 1e-5); CHECK_NEAR(d3[i], 42.5, 1e-5); }
+  // degenerate inputs: nothing written outside NaN, and the call is a no-op for the caller
+  float a[4] = {1, 2, 3, 4}, b[4], cc[4], dd[4];
+  CHECK(bollinger(a, 4, 5, b, cc, dd) == 0); for (int i = 0; i < 4; i++) CHECK(isnan(b[i]) && isnan(cc[i]) && isnan(dd[i]));
+  CHECK(bollinger(a, 4, 1, b, cc, dd) == 0);
+  CHECK(bollinger(a, 0, 2, b, cc, dd) == 0);
+  CHECK(bollinger(a, 4, 2, b, cc, dd) == 3);
+  CHECK(bollinger(nullptr, 4, 2, b, cc, dd) == 0);
+  // the panel clamps the period to n/2: 24 stored bars (1M) can never ask for 50
+  CHECK(bollinger(a, 4, (uint8_t)(4 / 2), b, cc, dd) == 3);
+  CHECK_NEAR(b[3], 3.5, 1e-6);
+}
+
 static void sinkStr(void *c, const char *d, size_t n) { static_cast<std::string *>(c)->append(d, n); }
 static void testWriter() {
   std::string out; {
@@ -507,7 +544,22 @@ static void testSettings() {
     CHECK(settingsLoadJson(br, "{\"backlight\":0}", 15) && br.backlight == 35);                                     // a bad stored value keeps the last good one
     CHECK(settingsLoadJson(br, "{\"backlight\":\"60\"}", 18) && br.backlight == 35);                                // wrong type likewise
     Settings old; settingsDefaults(old); const char *legacy = "{\"quoteRefreshS\":30}";                           // a settings file from before v1.1.2 has no pages
-    CHECK(settingsLoadJson(old, legacy, strlen(legacy)) && old.pages == 15 && old.backlight == 100); }
+    CHECK(settingsLoadJson(old, legacy, strlen(legacy)) && old.pages == 15 && old.backlight == 100);
+    // Bollinger Bands on the LCD Market chart (fw 1.1.8): an on/off switch plus an allow-list of
+    // periods (10/20/50), stored on the device - the panel clamps the period further at draw time
+    Settings bb; settingsDefaults(bb); CHECK(bb.bbLcd == 0 && bb.bbLcdP == 20);                      // off by default: an old panel keeps its old look
+    CHECK(applyS(bb, "{\"bbLcd\":1,\"bbLcdP\":10}") && bb.bbLcd == 1 && bb.bbLcdP == 10);
+    std::string bpe; CHECK(!applyS(bb, "{\"bbLcdP\":15}", &bpe) && bpe == "bbLcdP must be 10, 20 or 50" && bb.bbLcdP == 10);
+    CHECK(!applyS(bb, "{\"bbLcdP\":20.5}")); CHECK(!applyS(bb, "{\"bbLcdP\":9}")); CHECK(!applyS(bb, "{\"bbLcdP\":51}")); CHECK(!applyS(bb, "{\"bbLcdP\":\"20\"}"));
+    CHECK(!applyS(bb, "{\"bbLcd\":2}", &bpe) && bpe == "bbLcd must be 0..1" && bb.bbLcd == 1);
+    CHECK(!applyS(bb, "{\"bbLcd\":\"1\"}")); CHECK(applyS(bb, "{\"bbLcd\":0}") && bb.bbLcd == 0); CHECK(applyS(bb, "{\"bbLcdP\":50}") && bb.bbLcdP == 50);
+    std::string bbapi; { JsonWriter w(sinkStr, &bbapi); settingsWrite(w, bb, false, true); }
+    CHECK(bbapi.find("\"bbLcd\":0") != std::string::npos && bbapi.find("\"bbLcdP\":50") != std::string::npos
+      && bbapi.find("\"bbLcd\":[0,1]") != std::string::npos && bbapi.find("\"bbLcdP\":[10,50]") != std::string::npos);   // value + limits on the API
+    Settings bbr; settingsDefaults(bbr); std::string bbfl; { JsonWriter w(sinkStr, &bbfl); settingsWrite(w, bb, true, false); }
+    CHECK(settingsLoadJson(bbr, bbfl.data(), bbfl.size()) && bbr.bbLcd == 0 && bbr.bbLcdP == 50);     // survives the flash round trip
+    CHECK(settingsLoadJson(bbr, "{\"bbLcdP\":15}", 13) && bbr.bbLcdP == 50);                          // a bad stored value keeps the last good one
+    CHECK(settingsLoadJson(old, "{\"quoteRefreshS\":30}", strlen("{\"quoteRefreshS\":30}")) && old.bbLcd == 0 && old.bbLcdP == 20); } // a settings file from before 1.1.8 gets the defaults
   CHECK(!applyS(s, "{\"defaultRange\":\"1y\"}")); CHECK(!applyS(s, "{\"tzMode\":\"mars\"}")); CHECK(!applyS(s, "{\"tzMode\":1}"));
   CHECK(!applyS(s, "{\"hostname\":\"Bad_Host\"}")); CHECK(!applyS(s, "{\"hostname\":\"-x\"}")); CHECK(!applyS(s, "{\"hostname\":\"\"}")); CHECK(!applyS(s, "{\"hostname\":\"a1234567890123456789012x\"}"));
   CHECK(!applyS(s, "not json")); CHECK(!applyS(s, "{\"a\":")); CHECK(!applyS(s, "[1]"));
@@ -607,6 +659,6 @@ static void testPickClose() {
 
 int main(int argc, char **argv) {
   testClock(); testFormat(); testCalculator(); testQuoteView(); testChartStats(); testJson();
-  testYahoo(argc > 1 ? argv[1] : "fixtures"); testChartData(); testWriter(); testPortfolio(); testSettings(); testAppState(); testSchedule(); testPickClose(); testTicks(); printf("%d passed, %d failed\n", g_pass, g_fail);
+  testYahoo(argc > 1 ? argv[1] : "fixtures"); testChartData(); testBollinger(); testWriter(); testPortfolio(); testSettings(); testAppState(); testSchedule(); testPickClose(); testTicks(); printf("%d passed, %d failed\n", g_pass, g_fail);
   return g_fail ? 1 : 0;
 }

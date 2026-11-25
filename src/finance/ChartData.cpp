@@ -64,6 +64,30 @@ void chartStore(Chart &c, const uint32_t *t, const float *o, const float *h, con
   c.okEpoch = okEpoch;
 }
 
+uint16_t bollinger(const float *v, uint16_t n, uint8_t p, float *mid, float *up, float *dn) {
+  if (!v || !mid || !up || !dn || n == 0) return 0;
+  for (uint16_t i = 0; i < n; i++) mid[i] = up[i] = dn[i] = NAN;
+  if (p < 2 || n < p) return 0;
+  // Running sum and sum of squares over a sliding window of p closes: O(n), and the same
+  // arithmetic the web dashboard runs, so both draw the same bands.
+  double s = 0, q = 0;
+  uint16_t made = 0;
+  for (uint16_t i = 0; i < n; i++) {
+    s += v[i]; q += (double)v[i] * v[i];
+    if (i >= p) { const double x = v[i - p]; s -= x; q -= x * x; }
+    if (i >= p - 1) {
+      const double m = s / p;
+      const double var = q / p - m * m;
+      const double sd = var > 0 ? sqrt(var) : 0;   // a flat window gives sd 0 -> three equal lines
+      mid[i] = (float)m;
+      up[i] = (float)(m + BB_SIGMA * sd);
+      dn[i] = (float)(m - BB_SIGMA * sd);
+      made++;
+    }
+  }
+  return made;
+}
+
 static const char *const NAMES[RANGE_COUNT] = {"1d", "5d", "1mo"};
 static const char *const LABELS[RANGE_COUNT] = {"1D", "5D", "1M"};
 static const char *const INTERVALS[RANGE_COUNT] = {"5m", "15m", "1d"};

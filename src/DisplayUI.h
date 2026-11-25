@@ -28,6 +28,7 @@ void scrollPos(int dir);        // +/-1 page on the positions table
 void setRange(int r);           // chart period 0=1d 1=5d 2=1mo (also tells the refresher)
 int range();
 void invalidate();              // drop every draw cache and repaint (after OTA/banner screens)
+void invalidateChart();         // repaint the Market chart only (web settings that change the plot)
 void update();                  // call every loop() (touch feedback + data)
 void setBacklight(int pct);     // LCD dim: LEDC PWM on TFT_BL (web Settings, live)
 int backlightPct();             // level currently applied (-1 = not set yet)

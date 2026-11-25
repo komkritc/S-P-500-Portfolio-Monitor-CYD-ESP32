@@ -17,6 +17,19 @@ uint16_t downsampleOHLC(const uint32_t *t, const float *o, const float *h, const
 void chartStore(Chart &c, const uint32_t *t, const float *o, const float *h, const float *l,
                 const float *v, uint16_t n, float base, uint32_t okMs, uint32_t okEpoch);
 
+// ---------------------------------------------------------------- Bollinger Bands
+// The periods the settings accept, and the width on the panel (sigma). The web overlay lets the
+// browser pick its own width; the LCD always draws BB_SIGMA because the plot is only 80 px tall.
+static const uint8_t  BB_P_MIN = 10, BB_P_MAX = 50;
+static const float    BB_SIGMA = 2.0f;
+
+// Bollinger Bands over a close series: SMA(p) +/- BB_SIGMA * population sd of the same window.
+// Exactly the running sum / sum-of-squares maths the web dashboard runs, so the panel and the
+// browser agree to the last digit. mid/up/dn must hold n floats; the leading p-1 entries are NaN.
+// Returns the number of complete bands, 0 when p < 2 or n < p (never touches nothing else).
+// `v` must be finite - chartStore only ever stores parsed, non-null closes.
+uint16_t bollinger(const float *v, uint16_t n, uint8_t p, float *mid, float *up, float *dn);
+
 const char *rangeName(uint8_t r);        // "1d" "5d" "1mo"
 const char *rangeLabel(uint8_t r);       // "1D" "5D" "1M"
 const char *rangeInterval(uint8_t r);    // "5m" "15m" "1d"

@@ -547,6 +547,7 @@ static void postSettings() {
   if (!storage::saveSettings(n)) { g_app.settings = old; sendErr(500, "saving to flash failed"); return; }
   g_app.effQuoteS = n.quoteRefreshS; g_app.effChartS = n.chartRefreshS; g_app.effPortfolioS = n.portfolioRefreshS;
   if (old.backlight != n.backlight) UI::setBacklight(n.backlight);   // dim applies at once, no restart
+  if (old.bbLcd != n.bbLcd || old.bbLcdP != n.bbLcdP) UI::invalidateChart();   // BB on the LCD chart: redraw the plot
   Reply r(200); JsonWriter &w = r.w;
   w.beginObj().kBool("ok", true).kBool("restart", hc || strcmp(old.adminPass, n.adminPass) != 0);
   w.key("settings"); settingsWrite(w, n, false, true);
