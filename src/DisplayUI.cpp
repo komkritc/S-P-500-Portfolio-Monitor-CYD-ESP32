@@ -576,7 +576,7 @@ void drawPosStatics() {
   useFont(F2);
   tft.setTextColor(Cfg::SECTXT, Cfg::BG);
   tft.drawString("SYMBOL", Cfg::TBL_X + 8, Cfg::TBL_HY + 8, 2);
-  const char* lbl[3] = {"QTY", "NAV (THB)", "P/L (THB)"};
+  const char* lbl[3] = {"QTY", "NAV", "P/L"};   // the currency lives in the summary card, not every column
   const int rx[3] = {Cfg::COL_QTY_R, Cfg::COL_NAV_R, Cfg::COL_PL_R};
   for (int i = 0; i < 3; i++)
     tft.drawString(lbl[i], rx[i] - (int)tft.textWidth(lbl[i]),
