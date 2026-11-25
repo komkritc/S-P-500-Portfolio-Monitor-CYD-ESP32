@@ -151,3 +151,7 @@ Branch `smalltv-only` / remote `gh/main` is a history whose root *is* the SmallT
   `tests/preview/run_preview.py` then `tools/make_readme_img.py`, and change which frames are
   used in `SINGLES` / `GRID`. Regenerate them whenever the panel's look changes, or the README
   quietly shows an old firmware.
+* Pushing this repo: the credential helper is `gh auth git-credential` (global). Running
+  `GIT_TERMINAL_PROMPT=0 git push` fails with *"could not read Username for 'https://github.com'"*
+  even though `gh auth status` is fine and the helper answers a manual query. Just run
+  `git push origin main` plainly (it takes a few seconds).
