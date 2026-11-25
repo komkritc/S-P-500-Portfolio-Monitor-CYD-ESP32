@@ -713,9 +713,9 @@ void drawRealDynamic() {
     // no readable ledger: never a made-up 0
     txtSlot(S_RPL, 10, Cfg::R_BIG_Y, FG18, Cfg::MUTED, Cfg::BG, false,
             s.valid ? "no sales yet" : "ledger unreadable");
-    txtSlot(S_RYRV, Cfg::R_C1_X + 9, Cfg::R_C1_Y + 22, F4, Cfg::MUTED,
+    txtSlot(S_RYRV, Cfg::R_C1_X + 9, Cfg::R_C1_Y + 25, FG18, Cfg::MUTED,
             Cfg::CARD, false, "--");
-    txtSlot(S_RLTV, Cfg::R_C2_X + 9, Cfg::R_C2_Y + 22, F4, Cfg::MUTED,
+    txtSlot(S_RLTV, Cfg::R_C2_X + 9, Cfg::R_C2_Y + 25, FG18, Cfg::MUTED,
             Cfg::CARD, false, "--");
     txtSlot(S_RSALE, Cfg::R_C3_X + Cfg::R_C3_W - 9, Cfg::R_C3_Y + 4, FG18,
             Cfg::TEXT, Cfg::CARD, true, "0");
