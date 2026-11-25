@@ -10,6 +10,7 @@ XPT2046_Touchscreen ts(Cfg::TOUCH_CSPIN, Cfg::TOUCH_IRQ);
 
 bool down = false;
 int16_t sx = 0, sy = 0;        // press start (screen px)
+int16_t lx = 0, ly = 0;        // last point still under the finger (screen px)
 uint32_t downMs = 0, lastAccept = 0;
 int zoneHeld = -1, periodHeld = -1;
 int curScreen = 0;
@@ -56,6 +57,7 @@ Act poll(int& arg) {
     down = true;
     downMs = ms;
     sx = x; sy = y;
+    lx = x; ly = y;
     zoneHeld = (y >= Cfg::NAV_Y) ? (int)((unsigned)x / 80) : -1;
     if (zoneHeld >= 4) zoneHeld = -1;
     periodHeld = (curScreen == UI::SC_CHART && inPeriodBtn(x, y))   // 1D/5D/1M live on the chart screen
@@ -66,18 +68,25 @@ Act poll(int& arg) {
     logMs = ms;
     return A_NONE;
   }
+  if (now && down) {            // still held: follow the finger
+    lx = x; ly = y;
+    return A_NONE;
+  }
   if (!now && down) {
     down = false;
     const int z = zoneHeld, pr = periodHeld;
     zoneHeld = periodHeld = -1;
     if (ms - lastAccept < Cfg::TOUCH_DEBOUNCE_MS) return A_NONE;
 
-    const int dx = x - sx, dy = y - sy;
+    // readPt() leaves x,y untouched when there is no touch, so on the release
+    // frame they are stale/zero - the gesture must end at the last point that
+    // was actually under the finger, or every tap looks like a swipe to 0,0.
+    const int dx = lx - sx, dy = ly - sy;
     if (abs(dx) >= Cfg::SWIPE_MIN_PX && abs(dx) > abs(dy)) {
       lastAccept = ms;
       arg = dx > 0 ? -1 : +1;
       Serial.printf("[touch] swipe %s (%d)\n", dx > 0 ? "right" : "left", arg);
-      return A_SCREEN;
+      return A_SWIPE;
     }
     if (abs(dy) >= Cfg::SWIPE_MIN_PX && curScreen == UI::SC_POS) {
       lastAccept = ms;
@@ -98,7 +107,7 @@ Act poll(int& arg) {
     // The strip the page dots used to sit on: the dots are no longer drawn, so
     // this band is split into the same four zones as the nav bar - a tap just
     // above a nav button now does what the button under it does.
-    if (y >= Cfg::DOT_Y - 6 && y <= Cfg::DOT_Y + 6) {
+    if (sy >= Cfg::DOT_Y - 6 && sy <= Cfg::DOT_Y + 6) {
       for (int i = 0; i < 4; i++)
         if (sx >= Cfg::NAV_ZONE_X[i] && sx < Cfg::NAV_ZONE_X[i] + Cfg::NAV_ZONE_W[i]) {
           lastAccept = ms;

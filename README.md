@@ -128,10 +128,13 @@ boots with it blank and stays offline until Wi-Fi is supplied by the portal inst
 
 * **Nav bar** (bottom, four zones): Dashboard, Chart, Positions, Realised. The nav zone id
   equals the screen id; the `pages` bitmask keeps its historical numbering, so an old
-  `config.json` still means the same pages.
+  `config.json` still means the same pages. A tap on the strip just above the nav bar (where
+  the page dots used to be) selects the zone under it.
+* **Swipe** left/right anywhere on the content area steps to the next / previous screen.
 * **Chart page:** tap `1D` / `5D` / `1M`. While the rotation is running, entering the chart
   page steps to the next enabled range (`charts` mask).
-* **Positions:** 4 rows per page, scroll with the arrows; totals at the bottom.
+* **Positions:** 3 rows per page, scroll with a vertical swipe (finger up = next page);
+  totals at the bottom. A vertical swipe is only a scroll on the Positions page.
 * Touching anything cancels the auto-rotation timer, and a screen switched off by the mask
   can always be opened by hand - the masks can never lock you out.
 

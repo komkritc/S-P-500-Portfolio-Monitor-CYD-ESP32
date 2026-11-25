@@ -365,7 +365,7 @@ void drawNav() {
 }
 
 // The page-indicator dots were dropped from the UI; the strip at DOT_Y is still
-// a touch target (see Touch::hit), so tapping there still switches pages.
+// a touch target (see Touch::poll), so tapping there still switches pages.
 
 // ---- status badge ---------------------------------------------------------
 uint16_t badgeColor(MarketStatus s, uint16_t* bg) {
@@ -1037,9 +1037,11 @@ void update() {
   // ---- touch: dispatch actions, then repaint pressed states ----
   int arg = 0;
   switch (Touch::poll(arg)) {
+    case Touch::A_SWIPE:
+      setScreen(g_curScreen + arg);            // relative: -1 / +1
+      break;
     case Touch::A_SCREEN:
-      if (arg == -1 || arg == +1) setScreen(g_curScreen + arg);  // swipe
-      else setScreen(arg);                                      // nav zone / dot
+      setScreen(arg);                          // absolute nav zone / dot band id
       break;
     case Touch::A_SCROLL:
       scrollPos(arg);

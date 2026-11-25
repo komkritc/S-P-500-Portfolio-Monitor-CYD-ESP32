@@ -20,7 +20,7 @@ constexpr int16_t NAV_ZONE_X[4] = {0, 80, 160, 240}; // zone id == screen id: 0 
 constexpr int16_t NAV_ZONE_W[4] = {80, 80, 80, 80};
 constexpr int16_t DOT_Y = 199;                       // page dots are not drawn any
                                                      // more; this band stays a
-                                                     // touch target (see Touch::hit)
+                                                     // touch target (see Touch::poll)
 
 // Dashboard cards
 constexpr int16_t DASH_LX = 7,  DASH_LY = 39, DASH_LW = 182, DASH_LH = 155;
