@@ -123,3 +123,23 @@ Branch `smalltv-only` / remote `gh/main` is a history whose root *is* the SmallT
 * `Touch::begin()` calls `ts.setTouch(1)` after every `tft.init()` (ILI9341 init pulses the
   HSYNC/VSPI lines XPT2046 shares) and re-probes the controller in `loop()` if the boot probe
   failed, so a touch timeout never blocks the web server.
+
+## Panel chart facts (fw 1.1.8 - Bollinger Bands + candlesticks)
+
+* `py()` inverts the axis (a higher price is a **smaller** y). Derive a candle body from the
+  prices, never from the direction flag: `y1 = py(max(o,c))`, `y2 = py(min(o,c))`, then clamp and
+  give a doji one row. The first attempt (`y1 = py(g ? o : c)`) made every up-bar body collapse to
+  a flat line - visible only in the zoomed preview crop, not in the full-size PNG.
+* TFT_eSPI exposes no `drawPixel`; the mock TFT matches that, so single-pixel work (dithered band
+  wash, dotted SMA) must go through `drawFastVLine(x, y, 1, c)`.
+* Sizing a scratch buffer from a constexpr max (`chartCapMax()`) requires the source array to be
+  `constexpr`: `static const uint16_t RANGE_CAP[]` is *not* a constant expression, so it failed as
+  an array bound. `constexpr uint16_t RANGE_CAP[]` fixed it and costs nothing.
+* `POST /api/settings` only parses the body when **Content-Type: application/json**. A plain
+  `curl -d '{"backlight":80}'` (form-encoded) answers `{"ok":true}` and changes **nothing** - it
+  looks like the handler is broken when the body was simply empty. Always send the header when
+  probing settings over curl.
+* Two cheap preview guards caught real regressions: compare the plot rectangle of a
+  bands-on frame against the bands-off frame (pixels must differ), and count exact `Cfg::GREEN`
+  and `Cfg::RED` pixels inside the plot - a single-colour line chart can never produce both, so
+  that check proves the candlesticks were actually drawn.

@@ -34,3 +34,27 @@
            reading /api/chart at uptime 2 s (updated=previous boot, stale:true, count 79, o[] full),
            heap free 207.4 KB after reboot (was 212.1 KB on 1.1.5, -4.7 KB as predicted), maxBlock unchanged 110580.
            Needs eyes on the browser: the actual BB band/candle rendering at http://sp500-32.local/#market.
+
+2026-11-25 11:15  fw 1.1.7 -> 1.1.8  CYD sp500-32.local (192.168.1.161, chip F3AF48)  [espota over Wi-Fi, 67 s]
+           Bollinger Bands on the LCD Market chart + candlesticks, driven by one new setting pair
+           (bbLcd 0/1 default 0, bbLcdP 10/20/50 default 20, sigma fixed at 2.0).
+           Firmware: settings keys validated with an allow-list ("bbLcdP must be 10, 20 or 50"), stored in
+           config.json, reported in /api/settings limits; changing them calls UI::invalidateChart() (plot only,
+           no full-screen flash). ChartData::bollinger() = sliding sum/sum-of-squares population SD, O(n),
+           leading p-1 entries NaN. DisplayUI drawPlot(): period clamped to n/2 (1M stores only 24 daily bars),
+           needs n>=6, y-range widened to fit the bands, dithered (checkerboard) band wash + solid upper/lower +
+           dotted SMA + corner tag "BB <period used>". With bbLcd on, ranges whose bars carry a wick (h>l)
+           are drawn as candlesticks instead of the line+fill; series with no wick keep the line.
+           Web Settings tab: "BB + candles on the LCD chart" checkbox + SMA 10/20/50 select, applied
+           immediately (partial POST), also part of the Save payload.
+           Verified offline: 2192+128 asserts pass (incl. testBollinger vs naive O(n*p) on 140 points, flat
+           series sd=0, n=0/p>n/nullptr, settings round-trip), preview 75 frames 0 problems and two automatic
+           plot guards (16427 plot pixels change vs bands-off; 342 green / 822 red bar pixels => real candles),
+           RAM 21.4%, Flash 76.2%, web gz 21987/22528.
+           Verified live: fw 1.1.8 chip F3AF48; POST bbLcdP=30 -> 400 "bbLcdP must be 10, 20 or 50",
+           bbLcdP=5 -> 400 range, bbLcd=2 -> 400; bbLcd=1/bbLcdP=50 accepted and still 1/50 after
+           /api/system/restart; /api/chart all ranges carry candle-ready bars (1d 78/79, 5d 111/112,
+           1mo 22/22 with h>l and open!=close), served page 65236 B contains the new Settings control.
+           Left the device with bbLcd=1, bbLcdP=20 (1M clamps to 11 by itself).
+           Needs eyes on the panel: candle + band drawing on the Chart page (host preview PNGs match the layout,
+           but the real ILI9341 dithering is unverified).
