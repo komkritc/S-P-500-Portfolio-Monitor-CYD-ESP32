@@ -1,6 +1,7 @@
 // Host unit tests for the pure core: clock, format, calculator, JSON scanner, Yahoo parser, charts.
 // Build/run: see tests/run_tests.py
 #include "../src/core/MarketClock.h"
+#include "../src/core/PemUtil.h"
 #include "../src/core/Format.h"
 #include "../src/finance/FinancialCalculator.h"
 #include "../src/finance/YahooParser.h"
@@ -657,8 +658,37 @@ static void testPickClose() {
   { uint32_t t3[1] = {U(2026, 11, 19, 1, 0)}; float v3[1] = {55}; CHECK(pickCloseOnDate(t3, v3, 1, 2026, 11, 18, px, &ex) && ex); }
 }
 
+static void testPem() {
+  static const char ONE_PEM[] =
+    "-----BEGIN CERTIFICATE-----\nQUJD\nZGVm\n-----END CERTIFICATE-----\n";
+  char two[300]; strcpy(two, "\n"); strcat(two, ONE_PEM);
+  strcat(two, "// comment between certs is fine\n"); strcat(two, ONE_PEM);
+  CHECK(pem::sane(ONE_PEM, sizeof ONE_PEM - 1, 8192, 8));
+  CHECK(pem::count(ONE_PEM, sizeof ONE_PEM - 1) == 1);
+  CHECK(pem::count(two, strlen(two)) == 2);
+  CHECK(pem::sane(two, strlen(two), 8192, 8));
+  CHECK(!pem::sane("", 0, 8192, 8));                                   // empty
+  CHECK(!pem::sane("hello world", 11, 8192, 8));                        // no cert block
+  static const char NOEND[] = "-----BEGIN CERTIFICATE-----\nQUJD\n";
+  CHECK(!pem::sane(NOEND, sizeof NOEND - 1, 8192, 8));                  // BEGIN without END
+  static const char BADCHAR[] = "-----BEGIN CERTIFICATE-----\nQU!D\n-----END CERTIFICATE-----\n";
+  CHECK(!pem::sane(BADCHAR, sizeof BADCHAR - 1, 8192, 8));              // non-base64 body byte
+  static const char NULS[] = "-----BEGIN CERTIFICATE-----\nQUJD\x01\n-----END CERTIFICATE-----\n";
+  CHECK(!pem::sane(NULS, sizeof NULS - 1, 8192, 8));                    // control char in body
+  CHECK(!pem::sane(ONE_PEM, sizeof ONE_PEM - 1, 8, 8));                         // over the size cap
+  CHECK(!pem::sane(two, strlen(two), 8192, 1));                         // more roots than allowed
+  char longbuf[40]; memset(longbuf, 'A', sizeof longbuf);
+  CHECK(!pem::sane(longbuf, sizeof longbuf, 8192, 8));                  // no markers at all
+  CHECK(!pem::sane(nullptr, 100, 8192, 8));
+  CHECK(pem::fnv(ONE_PEM, sizeof ONE_PEM - 1) == pem::fnv(ONE_PEM, sizeof ONE_PEM - 1));
+  CHECK(pem::fnv(ONE_PEM, sizeof ONE_PEM - 1) != pem::fnv(two, strlen(two)));
+  // marker-looking text at the very end must not read past the buffer
+  static const char TAIL[] = "-----BEGIN CERTIFICATE----";
+  CHECK(!pem::sane(TAIL, sizeof TAIL - 1, 8192, 8));
+}
+
 int main(int argc, char **argv) {
   testClock(); testFormat(); testCalculator(); testQuoteView(); testChartStats(); testJson();
-  testYahoo(argc > 1 ? argv[1] : "fixtures"); testChartData(); testBollinger(); testWriter(); testPortfolio(); testSettings(); testAppState(); testSchedule(); testPickClose(); testTicks(); printf("%d passed, %d failed\n", g_pass, g_fail);
+  testYahoo(argc > 1 ? argv[1] : "fixtures"); testChartData(); testBollinger(); testWriter(); testPortfolio(); testSettings(); testAppState(); testSchedule(); testPickClose(); testTicks(); testPem(); printf("%d passed, %d failed\n", g_pass, g_fail);
   return g_fail ? 1 : 0;
 }

@@ -6,6 +6,7 @@
 #include <new>
 #include "WiFiManager.h"
 #include "OTAManager.h"
+#include "CertStore.h"
 #include "../core/AppState.h"
 #include "../core/JsonWriter.h"
 #include "../core/FlatJson.h"
@@ -14,6 +15,7 @@
 #include "../config/AppConfig.h"
 #include "../finance/ChartData.h"
 #include "../finance/MarketData.h"
+#include "../finance/YahooFinance.h"
 #include "../finance/Portfolio.h"
 #include "../storage/StorageManager.h"
 #include "../storage/SaleStore.h"
@@ -141,8 +143,15 @@ static void apiStatus() {
   w.key("wifi").beginObj().kStr("mode", n.mode == NetInfo::NET_AP_SETUP ? "ap-setup" : n.mode == NetInfo::NET_AP_RESCUE ? "ap-rescue" : "sta")
    .kBool("connected", n.connected).kStr("ssid", n.ssid).kStr("ip", n.ip).kInt("rssi", n.connected ? n.rssi : 0).kStr("mdns", host).endObj();
   w.key("data").beginObj().kInt("lastMarketOk", a.lastMarketOkEpoch).kStr("lastError", a.lastError).kInt("lastErrorEpoch", a.lastErrorEpoch)
+   .kStr("blocked", a.clockSynced ? "" : "clock not synced")
    .kBool("quoteStale", a.quote.valid && a.quote.stale).kBool("portfolioStale", a.summary.stale)
    .kInt("effQuoteS", a.effQuoteS).kInt("effChartS", a.effChartS).endObj();
+  // Measured TLS footprint of the last Yahoo connection (req: no assumptions about its cost).
+  const yahoo::TlsStats &ts = yahoo::stats();
+  w.key("tls").beginObj().kBool("verified", ts.verified).kStr("clock", ts.clockSynced ? "synced" : "not synced")
+   .kInt("hsMs", ts.hsMs).kInt("heapBefore", ts.heapBefore).kInt("heapAfter", ts.heapAfter)
+   .kInt("blockBefore", ts.blockBefore).kInt("blockAfter", ts.blockAfter).kInt("bundle", ts.certsHash).endObj();
+  certs::statusJson(w);
   w.key("ota").beginObj().kBool("active", ota::active()).endObj();
   w.endObj();
 }
@@ -409,6 +418,26 @@ static void postSaleConfirm() {
     if (!parseSaleReq(j, req, err, sizeof err)) { sendErr(400, err); return; }
   }
   if (!req.token) { sendErr(400, "preview token required"); return; }
+  // Market-data integrity (defense in depth): the client echoes the preview price, but when the
+  // sale is marked "yahoo" the DEVICE's own verified close must still be fresh and agree with the
+  // echoed numbers. The client can never inject a refPrice the device did not fetch over verified
+  // TLS. Manual sales are unaffected.
+  if (req.priceSource == PRICE_YAHOO) {
+    const market::SalePriceJob &jp = market::salePriceJob();
+    bool same = jp.state == market::JOB_OK && !strcmp(jp.symbol, req.symbol) && !strcmp(jp.date, req.date);
+    if (!same) { sendErr(409, "the device's Yahoo close is no longer fresh - preview again"); return; }
+    if (isNum(jp.price) && jp.price > 0 && jp.price < 1e10) {
+      req.refPrice = jp.price;                        // device-verified value wins over client input
+      double p = req.price;
+      double dev = fabs(p - jp.price);
+      if (!isNum(p) || p <= 0 || p >= 1e10 || dev > 0.05 * jp.price)
+        { sendErr(409, "execution price moved a lot since preview - preview again"); return; }
+    } else {
+      req.refPrice = NAN;                             // unknown close: store N/A, never a 0
+    }
+  } else {
+    if (isNum(req.refPrice) && (req.refPrice <= 0 || req.refPrice >= 1e10)) req.refPrice = NAN;
+  }
   SalePreview *pvp = (SalePreview *)calloc(1, sizeof(SalePreview));   // ~780 B: heap, the handler stack is small
   if (!pvp) { sendErr(500, "out of memory"); return; }
   SalePreview &pv = *pvp;
@@ -483,6 +512,42 @@ static void apiWifiScan() {
   w.key("networks").beginArr();
   for (uint8_t i = 0; i < n; i++) w.beginObj().kStr("ssid", e[i].ssid).kInt("rssi", e[i].rssi).kBool("enc", e[i].enc).kInt("ch", e[i].channel).endObj();
   w.endArr().endObj();
+}
+
+// ---------------------------------------------------------------- certificate bundle API
+// GET is open like /api/status (CA information is public by nature); install/reset are write
+// operations behind the admin password. Install reads the PEM as the raw request body
+// (text/plain), NOT JSON: FlatJson's small value cap would reject an 8 KB bundle.
+static void apiCerts() {
+  Reply r(200); JsonWriter &w = r.w;
+  w.beginObj().kBool("ok", true);
+  certs::statusJson(w);
+  w.endObj();
+}
+
+static void postCertsInstall() {
+  if (!requireAuth()) return;
+  String pem = server.arg("plain");
+  if (pem.length() < 64) { sendErr(400, "empty body: send the PEM bundle as text/plain"); return; }
+  if (pem.length() > 9000) { sendErr(413, "bundle too large (cap 8 KB)"); return; }
+  char err[96] = "";
+  bool ok = certs::installNew(pem.c_str(), pem.length(), err, sizeof err);
+  Reply r(200); JsonWriter &w = r.w;
+  w.beginObj().kBool("ok", ok);
+  if (!ok) w.kStr("error", err);
+  certs::statusJson(w);
+  w.endObj();
+}
+
+static void postCertsReset() {
+  if (!requireAuth()) return;
+  char err[64] = "";
+  bool ok = certs::resetToBuiltin(err, sizeof err);
+  Reply r(200); JsonWriter &w = r.w;
+  w.beginObj().kBool("ok", ok);
+  if (!ok) w.kStr("error", err);
+  certs::statusJson(w);
+  w.endObj();
 }
 
 // ---------------------------------------------------------------- write API
@@ -619,6 +684,9 @@ void begin() {
   server.on("/api/sales", HTTP_GET, apiSales);
   server.on("/api/sales/export", HTTP_GET, apiSalesExport);
   server.on("/api/sales/job", HTTP_GET, apiSaleJob);
+  server.on("/api/certs", HTTP_GET, apiCerts);
+  server.on("/api/certs/install", HTTP_POST, postCertsInstall);
+  server.on("/api/certs/reset", HTTP_POST, postCertsReset);
   server.on("/api/sales/preview", HTTP_POST, postSalePreview);
   server.on("/api/sales/confirm", HTTP_POST, postSaleConfirm);
   server.on("/api/sales/reverse", HTTP_POST, postSaleReverse);

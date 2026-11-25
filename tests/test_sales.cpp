@@ -166,6 +166,26 @@ static void testPreview() {
   SaleRequest zero = R("^GSPC", "2026-11-19");
   zero.qty = 0; zero.price = 6200;
   CHECK(!sale::preview(pos, n, m, zero, now, pv) && errHas(pv, "quantity"));
+
+  // 13. integrity bounds: absurd inputs are refused, never stored as float garbage that the
+  // ledger would read back differently (floats only round-trip exactly in a sane domain).
+  SaleRequest bigP = R("^GSPC", "2026-11-19");
+  bigP.qty = 1; bigP.price = 1e11;
+  CHECK(!sale::preview(pos, n, m, bigP, now, pv) && errHas(pv, "price"));
+  SaleRequest bigQ = R("^GSPC", "2026-11-19");
+  bigQ.qty = 1e13; bigQ.price = 6200;
+  CHECK(!sale::preview(pos, n, m, bigQ, now, pv) && errHas(pv, "quantity"));
+  SaleRequest bigF = R("^GSPC", "2026-11-19");
+  bigF.qty = 1; bigF.price = 6200; bigF.fee = 1e13;
+  CHECK(!sale::preview(pos, n, m, bigF, now, pv) && errHas(pv, "fee"));
+  SaleRequest bigA = R("^GSPC", "2026-11-19");
+  bigA.mode = SALE_BY_THB; bigA.amount = 1e16; bigA.price = 6200;
+  CHECK(!sale::preview(pos, n, m, bigA, now, pv) && errHas(pv, "amount"));
+  // a huge-but-under-cap quantity is stopped by availability long before the amount guard,
+  // which stays as defense in depth for future cap changes
+  SaleRequest bigProd = R("^GSPC", "2026-11-19");
+  bigProd.qty = 5e11; bigProd.price = 5e3;
+  CHECK(!sale::preview(pos, n, m, bigProd, now, pv) && errHas(pv, "available"));
 }
 
 // ---------------------------------------------------------------- token binding

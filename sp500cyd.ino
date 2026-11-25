@@ -22,6 +22,7 @@
 #include "src/finance/Portfolio.h"
 #include "src/finance/MarketData.h"
 #include "src/network/WiFiManager.h"
+#include "src/network/CertStore.h"
 #include "src/network/WebServerManager.h"
 #include "src/network/OTAManager.h"
 #include "src/TouchUI.h"
@@ -52,6 +53,7 @@ void setup() {
 
   UI::bootBanner(20, "storage");
   storage::begin();
+  certs::bootSweep();   // an interrupted CA-bundle upload never activates: drop the orphan .new
   HEAP("littlefs");
   storage::loadSettings(g_app.settings);
   g_app.posCount = storage::loadPortfolio(g_app);

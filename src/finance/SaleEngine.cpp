@@ -295,9 +295,9 @@ bool preview(const Position *pos, uint8_t n, const PortfolioMeta &m, const SaleR
   int y, mo, d;
   if (!parseIsoDate(req.date, y, mo, d)) return fail(pv, S_LIT("invalid date (YYYY-MM-DD)"));
   if (nowEpoch && utcMidnight(y, mo, d) > nowEpoch + 86400UL) return fail(pv, S_LIT("sale date is in the future"));
-  if (!isNum(req.price) || req.price <= 0) return fail(pv, S_LIT("execution price must be > 0"));
+  if (!isNum(req.price) || req.price <= 0 || req.price >= 1e10) return fail(pv, S_LIT("execution price must be > 0"));
   double fee = isNum(req.fee) ? req.fee : 0;
-  if (fee < 0) return fail(pv, S_LIT("fee must be >= 0"));
+  if (fee < 0 || fee >= 1e12) return fail(pv, S_LIT("fee must be >= 0"));
 
   uint16_t lots[MAX_POSITIONS];
   uint8_t c = 0;
@@ -315,11 +315,11 @@ bool preview(const Position *pos, uint8_t n, const PortfolioMeta &m, const SaleR
   switch (req.mode) {
     case SALE_BY_ALL: qty = avail; break;
     case SALE_BY_THB:
-      if (!isNum(req.amount) || req.amount <= 0) return fail(pv, S_LIT("amount must be > 0"));
+      if (!isNum(req.amount) || req.amount <= 0 || req.amount >= 1e15) return fail(pv, S_LIT("amount must be > 0"));
       qty = req.amount / req.price;
       break;
     case SALE_BY_QTY:
-      if (!isNum(req.qty) || req.qty <= 0) return fail(pv, S_LIT("quantity must be > 0"));
+      if (!isNum(req.qty) || req.qty <= 0 || req.qty >= 1e12) return fail(pv, S_LIT("quantity must be > 0"));
       qty = req.qty;
       break;
     default: return fail(pv, S_LIT("unknown sale mode"));
@@ -374,7 +374,7 @@ bool preview(const Position *pos, uint8_t n, const PortfolioMeta &m, const SaleR
   copyStr(pv.symbol, sizeof pv.symbol, req.symbol);
   copyStr(pv.date, sizeof pv.date, req.date);
   pv.price = req.price;
-  pv.refPrice = req.refPrice;
+  pv.refPrice = (isNum(req.refPrice) && req.refPrice > 0 && req.refPrice < 1e10) ? req.refPrice : NAN;
   pv.fee = fee;
   pv.qty = qty;
   pv.available = avail;
@@ -382,6 +382,11 @@ bool preview(const Position *pos, uint8_t n, const PortfolioMeta &m, const SaleR
   pv.net = pv.gross - fee;
   pv.cost = cost;
   pv.realised = pv.net - cost;
+  // Integrity boundary: every money figure stays inside a domain where float round-trips to
+  // decimal text exactly. Unbounded products would store values the ledger then reads back wrong.
+  if (!isNum(pv.gross) || !isNum(pv.cost) || !isNum(pv.realised) ||
+      pv.gross >= 1e15 || fabs(pv.realised) >= 1e15)
+    return fail(pv, S_LIT("implausible amounts - check quantity, price and fee"));
   pv.token = previewToken(pos, n, m);
   pv.ok = true;
   pv.error[0] = 0;

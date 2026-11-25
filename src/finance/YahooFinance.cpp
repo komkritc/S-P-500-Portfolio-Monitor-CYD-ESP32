@@ -2,7 +2,9 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <new>
+#include <time.h>
 #include "../core/PlatformShim.h"
+#include "../network/CertStore.h"
 
 namespace yahoo {
 
@@ -20,6 +22,7 @@ enum Stage : uint8_t { S_NONE, S_HEADERS, S_BODY };
 static WiFiClientSecure *s_cl = nullptr;
 static YahooParser *s_parser = nullptr;
 static Result s_res = {IDLE, 0, "", false, false};
+static TlsStats s_stats = {0, 0, 0, 0, 0, 0, false, false};
 static Stage s_stage = S_NONE;
 static uint32_t s_t0 = 0, s_lastByte = 0;
 static char s_line[64];
@@ -52,6 +55,7 @@ static void finishDone() {
 
 bool busy() { return s_res.phase == RUNNING; }
 const Result &result() { return s_res; }
+const TlsStats &stats() { return s_stats; }
 
 void abort() {
   if (s_cl) { s_cl->stop(); delete s_cl; s_cl = nullptr; }
@@ -70,20 +74,31 @@ bool start(const char *path, YahooParser &parser) {
   }
   s_cl = new (std::nothrow) WiFiClientSecure();
   if (!s_cl) { strlcpy(s_res.error, "out of memory", sizeof s_res.error); s_res.phase = FAILED; return false; }
-  s_cl->setInsecure();
+  // Verify against the active root bundle (built-in or field-updated). Deliberately NO setInsecure():
+  // a failed handshake is a failed job, never a downgrade.
+  const char *caPem = certs::active();
+  s_cl->setCACert(caPem);
+  s_stats.certsHash = (uint16_t)(certs::pemHash(caPem, strlen(caPem)) & 0xFFFFu);
+  s_stats.clockSynced = time(nullptr) > 1600000000L;
+  s_stats.verified = true;
   s_cl->setTimeout(CONNECT_TIMEOUT_MS);
   s_parser = &parser;
   s_t0 = millis();
   // Blocking part: DNS + TCP + TLS handshake.
   uint32_t freeBefore = ESP.getFreeHeap(), blockBefore = maxFreeBlock();
+  s_stats.heapBefore = freeBefore; s_stats.blockBefore = blockBefore;
   if (!s_cl->connect(HOST, 443)) {
     char tls[40] = "";
     int e = s_cl->lastError(tls, sizeof tls);
     snprintf(s_res.error, sizeof s_res.error, e ? "TLS error %d" : "connect failed", e);
     Serial.printf("[yahoo] connect failed: ssl=%d heap %u/%u\n", e, (unsigned)freeBefore, (unsigned)blockBefore);
+    s_stats.hsMs = (uint32_t)(millis() - s_t0);
+    s_stats.heapAfter = ESP.getFreeHeap(); s_stats.blockAfter = maxFreeBlock();
     finishFail(s_res.error);
     return false;
   }
+  s_stats.hsMs = (uint32_t)(millis() - s_t0);
+  s_stats.heapAfter = ESP.getFreeHeap(); s_stats.blockAfter = maxFreeBlock();
   Serial.printf("[yahoo] TLS up in %lu ms, heap %u/%u -> %u/%u (free/block)\n", (unsigned long)(millis() - s_t0), (unsigned)freeBefore, (unsigned)blockBefore, (unsigned)ESP.getFreeHeap(), (unsigned)maxFreeBlock());
   // The Wi-Fi driver allocates from the same heap while the response streams in. When too little is left it writes through
   // a NULL pointer and the chip resets (Exception 29), so give up cleanly instead.

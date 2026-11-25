@@ -164,10 +164,17 @@ quantity and price. Dates in the UI are `dd/mm/yyyy`; the API speaks ISO.
 Settings: refresh intervals, page-rotate seconds, LCD page and chart-range masks, default
 range, time zone, LCD brightness, hostname, admin password.
 
+Every market request runs over **fully verified TLS** (fw 1.3.0): no `setInsecure()` exists in
+the codebase. Root CAs are two-tier - a built-in bundle in flash plus an optional, OTA-installable
+custom bundle that the device live-tests against Yahoo before activating it, so a bad CA upload
+can never brick connectivity. HTTPS is gated on NTP sync (certificates carry time windows) and
+all parsed prices/sale figures pass sanity bounds before reaching the ledger - see
+[docs/CERTS.md](docs/CERTS.md).
+
 ## API
 
-See [docs/API.md](docs/API.md). `GET /api/status|portfolio|positions|market|chart|realised|sales|settings|wifi/*`,
-`POST /api/settings|positions|positions/delete|refresh|cache/clear|sales/preview|sales/confirm|sales/reverse|sales/delete|wifi/*|system/*`,
+See [docs/API.md](docs/API.md). `GET /api/status|portfolio|positions|market|chart|realised|sales|settings|wifi/*|certs`,
+`POST /api/settings|positions|positions/delete|refresh|cache/clear|sales/preview|sales/confirm|sales/reverse|sales/delete|certs/install|certs/reset|wifi/*|system/*`,
 plus `POST /update` and ArduinoOTA on 3232 (password = admin password). If an admin password
 is set, every `POST`, `/update` and every sale endpoint need HTTP Basic auth.
 
@@ -204,12 +211,14 @@ boxes used to tune the layout. Screens in the README are 2x nearest-neighbour, n
 sp500cyd.ino        setup()/loop(): wiring only
 src/DisplayUI.*     all LCD drawing (statics + cached dynamic pass), fonts, ink metrics
 src/TouchUI.*       XPT2046 read, hit zones (nav bar, period buttons, page strip)
-src/core/           AppTypes, AppState, MarketClock (NY time / NYSE), Format, JsonWriter, FlatJson
+src/core/           AppTypes, AppState, MarketClock (NY time / NYSE), Format, JsonWriter, FlatJson, PemUtil (pure PEM validators)
 src/finance/        FinancialCalculator, Portfolio, SaleEngine, ChartData, YahooParser, YahooFinance, MarketData
 src/config/         AppConfig (limits and validation of the settings patch)
 src/storage/        StorageManager (atomic writes, cache), SaleStore (append-only ledger + journal + delete)
-src/network/        WiFiManager (AP / captive portal / rescue), WebServerManager, OTAManager
+src/network/        WiFiManager (AP / captive portal / rescue), WebServerManager, OTAManager, CertStore (root-CA tiers + live-verified install)
 include/config.h    screen geometry: header, nav zones, card and row positions
+tools/fetch_roots.py regenerates the built-in root bundle (certs_builtin.h) from the curl CA store,
+                     verifying each root is self-signed AND anchors the live Yahoo chains
 web/                index.html (source), web_assets.h (generated, gzipped)
 tests/ tools/ docs/
 ```
@@ -217,6 +226,8 @@ tests/ tools/ docs/
 ## Notes and limits
 
 * 2.4 GHz Wi-Fi only (ESP32 on this board), HTTP Basic over plain HTTP - LAN use only.
+* Device -> Yahoo is certificate-verified TLS (fw 1.3.0); browser -> device is plain HTTP,
+  which on a trusted LAN is the usual embedded compromise (set an admin password regardless).
 * Yahoo's unofficial endpoint may rate-limit; the device backs off (up to 10 min) and shows
   stale data instead of failing.
 * The two READMEs share the data rules (N/A never 0, STALE handling, unrealised vs realised

@@ -7,6 +7,7 @@
 #include "Portfolio.h"
 #include "../core/MarketClock.h"
 #include "../storage/StorageManager.h"
+#include "../network/WiFiManager.h"
 
 namespace market {
 
@@ -382,6 +383,10 @@ void loop() {
   if (!wifiUp() ) return;
   if (!s_started) { s_started = true; dueAllNow(now); }
   if ((int32_t)(now - s_nextStart) < 0) return;
+  // Certificate validity windows are checked against the RTC: without an NTP-synced clock every
+  // verification would fail on garbage dates. Defer (5 s retry) instead of fetching or "trusting";
+  // esp_sntp keeps retrying in the background, and diagnostics show "Clock not synced".
+  if (!wifimgr::clockSynced()) { s_nextStart = now + 5000; return; }
   if (pickAndStart(now)) {
     // a start that failed synchronously (low memory...) must not retry in a tight loop
     if (s_job == J_NONE) s_nextStart = now + 10000;

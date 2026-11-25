@@ -706,7 +706,7 @@ const c=s.chip||{},h=s.heap||{},w=s.wifi||{},d=s.data||{},f=s.fs||{};
 dl($('y-dl'),[['Firmware',s.fw||NA],['Chip ID',c.id||NA],['CPU',c.cpuMHz?c.cpuMHz+' MHz':NA],['Flash',c.flashKB?c.flashKB+' KB':NA],['Sketch',c.sketchKB!=null?c.sketchKB+' KB (free '+c.freeSketchKB+' KB)':NA],['SDK',c.sdk||NA],
 ['Free heap',h.free!=null?nf(h.free,0)+' B':NA],['Max free block',h.maxBlock!=null?nf(h.maxBlock,0)+' B':NA],['Fragmentation',h.frag!=null?h.frag+'%':NA],['Uptime',up(s.uptime||0)],
 ['Wi-Fi',w.connected?w.ssid+' ('+w.rssi+' dBm)':'not connected ('+w.mode+')'],['IP address',w.ip||NA],['mDNS name',w.mdns||NA],
-['Last market update',lt(d.lastMarketOk)],['Last error',d.lastError?d.lastError+' ('+lt(d.lastErrorEpoch)+')':'none']]);
+['Last market update',lt(d.lastMarketOk)],['Last error',d.lastError?d.lastError+' ('+lt(d.lastErrorEpoch)+')':'none'],['Market gate',d.blocked?d.blocked:'ok'],['TLS roots',(s.certs||{}).source||NA]]);
 const p=f.ok&&f.totalKB?Math.round(f.usedKB/f.totalKB*100):0;
 $('y-fst').textContent=f.ok?f.usedKB+' / '+f.totalKB+' KB ('+p+'%)':'unavailable';$('y-fsb').style.width=p+'%';
 $('y-a1').textContent='http://'+(w.mdns||'sp500.local');$('y-a2').textContent=w.ip?'http://'+w.ip:''}

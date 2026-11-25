@@ -24,6 +24,11 @@ void YahooParser::onEvent(void *ctx, const char *path, int idx, JsonKind k, cons
 
 static double num(const char *s) { return strtod(s, nullptr); }
 
+// Market sanity: no real quote is >= $10^10; anything outside (0, PX_MAX) is malformed or
+// adversarial input and becomes NaN ("unknown"), which every downstream consumer must handle.
+static const double PX_MAX = 1e10;
+static inline double saneNum(double v) { return (isNum(v) && v > 0 && v < PX_MAX) ? v : NAN; }
+
 void YahooParser::handle(const char *path, int idx, JsonKind k, const char *text) {
   static const char RES[] = "chart.result[]";
   if (strncmp(path, "chart.error", 11) == 0) {
@@ -37,12 +42,12 @@ void YahooParser::handle(const char *path, int idx, JsonKind k, const char *text
   if (strncmp(p, ".meta.", 6) == 0) {
     p += 6;
     if (k == JK_NUM) {
-      if (!strcmp(p, "regularMarketPrice")) price = num(text);
+      if (!strcmp(p, "regularMarketPrice")) price = saneNum(num(text));
       else if (!strcmp(p, "regularMarketTime")) marketTime = (uint32_t)strtoul(text, nullptr, 10);
-      else if (!strcmp(p, "chartPreviousClose")) prevClose = num(text);
-      else if (!strcmp(p, "previousClose")) prevClose2_ = num(text);
-      else if (!strcmp(p, "regularMarketDayHigh")) dayHigh = num(text);
-      else if (!strcmp(p, "regularMarketDayLow")) dayLow = num(text);
+      else if (!strcmp(p, "chartPreviousClose")) prevClose = saneNum(num(text));
+      else if (!strcmp(p, "previousClose")) prevClose2_ = saneNum(num(text));
+      else if (!strcmp(p, "regularMarketDayHigh")) dayHigh = saneNum(num(text));
+      else if (!strcmp(p, "regularMarketDayLow")) dayLow = saneNum(num(text));
       else if (!strcmp(p, "gmtoffset")) gmtOffset = (int32_t)strtol(text, nullptr, 10);
     } else if (k == JK_STR) {
       if (!strcmp(p, "timezone")) { strncpy(tz, text, sizeof tz - 1); tz[sizeof tz - 1] = 0; }
@@ -91,7 +96,7 @@ bool YahooParser::finish() {
     uint16_t n = tsN_ < clN_ ? tsN_ : clN_;
     uint32_t lastT = 0;
     for (uint16_t i = 0; i < n; i++) {
-      if (!isNum(cl_[i]) || cl_[i] <= 0 || ts_[i] <= lastT) continue;
+      if (!isNum(cl_[i]) || cl_[i] <= 0 || cl_[i] >= PX_MAX || ts_[i] <= lastT) continue;
       ts_[count] = ts_[i]; cl_[count] = cl_[i];
       if (oh_ && hh_ && lh_) {   // keep the OHLC bar consistent with the surviving close
         float o = oh_[i], h = hh_[i], l = lh_[i], c = cl_[count];

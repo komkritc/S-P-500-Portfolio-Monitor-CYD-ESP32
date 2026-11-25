@@ -23,10 +23,12 @@ Conventions
  "chip":{"id":"A1B2C3","cpuMHz":160,"flashKB":4096,"sketchKB":512,"freeSketchKB":1019,"sdk":"3.1.2"},
  "fs":{"ok":true,"totalKB":1024,"usedKB":16},
  "wifi":{"mode":"sta","connected":true,"ssid":"home","ip":"192.168.1.50","rssi":-61,"mdns":"sp500-32.local"},
- "data":{"lastMarketOk":1795210560,"lastError":"HTTP 429","lastErrorEpoch":1795210000,"quoteStale":false,"portfolioStale":false},
+ "data":{"lastMarketOk":1795210560,"lastError":"HTTP 429","lastErrorEpoch":1795210000,"quoteStale":false,"portfolioStale":false,"blocked":""},
+ "tls":{"verified":true,"clock":"synced","hsMs":1631,"heapBefore":207912,"heapAfter":159876,"blockBefore":110580,"blockAfter":90100,"bundle":2254},
+ "certs":{"source":"builtin","roots":3,"hash":3623160014},
  "ota":{"active":false}}
 ```
-`wifi.mode`: `sta` | `ap-setup` (no saved network) | `ap-rescue` (saved network unreachable). `lastError` is `""` when none.
+`wifi.mode`: `sta` | `ap-setup` (no saved network) | `ap-rescue` (saved network unreachable). `lastError` is `""` when none. `data.blocked` explains why the market scheduler is idle (`"clock not synced"` until NTP completes - TLS needs a valid clock to check certificate time windows). `tls` describes the last HTTPS handshake: `verified` is always true on fw >= 1.3.0 (unverified requests cannot happen), `hsMs` handshake time, heap/min-block before/after the TLS session, `bundle` bytes fetched. `certs` = same object as `GET /api/certs`.
 
 ### GET /api/portfolio
 ```json
@@ -143,6 +145,12 @@ Notes the dashboard relies on
 * The dashboard shows and accepts dates as dd/mm/yyyy; this API always uses ISO `yyyy-mm-dd`.
 * `realisedPl`/`lifetimePl` ride `/api/portfolio` (the page that already polls) so the header cards stay cheap; the sale endpoints need admin auth and are only called on the `#sales` page.
 
+### GET /api/certs
+```json
+{"ok":true,"certs":{"source":"builtin","roots":3,"hash":3623160014}}
+```
+Which root CA bundle verifies every Yahoo TLS session right now: `builtin` (firmware, PROGMEM) or `custom` (`/ca/bundle.pem` on LittleFS, installed via the API below). `hash` is an FNV-1a checksum of the active PEM - use it to confirm what the device actually trusts after an install. See [docs/CERTS.md](CERTS.md).
+
 ## Write endpoints
 
 | Method + path | Body | Success | Notes |
@@ -156,6 +164,8 @@ Notes the dashboard relies on
 | `POST /api/sales/confirm` | the preview body + `"token":<preview.token>` | `200 {"ok":true,"state":"committed","id":"TX-000004","seq":4,"preview":{...}}` | The token binds the commit to the portfolio state the preview was computed from: any lot change, new sale or undo in between gives `409` (`"preview is out of date..."`). Never deletes anything; the lot quantities are set to the preview's `after`. |
 | `POST /api/sales/reverse` | `{"seq":4}` | `200 {"ok":true}` | Appends a reversal record (an undo is a new line, never an edit). `400` for an unknown `seq`, an already reversed sale, or a reversal of a reversal. |
 | `POST /api/sales/delete` | `{"seq":4}` | `200 {"ok":true}` | **Permanently** removes one transaction from `/sells.jsonl`. A sale and its reversal are always removed together (`seq` may name either); an active sale is reversed first so the position is restored. Later records are renumbered (`TX-` ids are kept). `404` unknown `seq`, `409` ledger has unreadable lines. Rewrites the file through a temp copy, finished at boot if power is cut. |
+| `POST /api/certs/install` | raw PEM bundle as `text/plain` body (1..8 certificates, <= 8 KB) | `200 {"ok":true,"certs":{...}}` | **Live-verified activation**: the device performs a real TLS fetch of Yahoo with the candidate roots; only on success is `/ca/bundle.pem` swapped in (atomic rename). Any failure (`400` malformed PEM, `413` too large, or `{"ok":false,"error":"TLS refused by the new roots (ssl -9984: ...)"}`) leaves the previous bundle active. Recover from a Yahoo CA change without a reflash. |
+| `POST /api/certs/reset` | `{}` | `200 {"ok":true,"certs":{"source":"builtin",...}}` | deletes the custom bundle, falls back to the firmware bundle |
 | `POST /api/wifi/connect` | `{"ssid":"home","password":"..."}` | `202 {"ok":true,"state":"connecting"}` | non-blocking; poll `/api/wifi/status` -> `connect.state`. Credentials are saved only after a successful join; on failure the old network is restored. |
 | `POST /api/wifi/reconnect` | `{}` | `200 {"ok":true}` | |
 | `POST /api/wifi/forget` | `{"confirm":"FORGET"}` | `200 {"ok":true}` | deletes saved credentials, device starts the setup AP |
@@ -165,6 +175,8 @@ Notes the dashboard relies on
 | `POST /update` | multipart form, file field `firmware` (`.bin`) | `200 text "OK, rebooting"` | on failure `500 text "update failed: ..."` |
 
 Symbols are upper-case `[A-Z0-9^.=-]`, 1..15 chars. Aliases `SP500`, `S&P500`, `GSPC` -> `^GSPC`; `SPX` -> `^SPX`; `NDX`, `NASDAQ` -> `^NDX`.
+
+Sale-integrity note (fw >= 1.3.0): on `sales/confirm` with `priceSource:"yahoo"`, the device re-checks its **own** verified close for that symbol+date. The stored `refPrice` is the device's value, never the client's; an execution price more than 5% away from it gives `409` (`"... moved a lot since preview - preview again"` / `"the device's Yahoo close is no longer fresh - preview again"`). Money fields are bounded (price < 1e10, fee < 1e12, amount < 1e15, qty < 1e12) so every figure round-trips exactly through float->decimal->float.
 
 ## Sale ledger
 
