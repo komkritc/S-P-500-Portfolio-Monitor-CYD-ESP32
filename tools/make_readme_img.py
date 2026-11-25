@@ -22,10 +22,12 @@ GAP = 8
 BG = (24, 26, 32)          # the app background, so the gutters match the UI
 
 # name in docs/img -> frame produced by the preview harness
+# The two chart images use the bands-on frames: with the "BB + candles on the LCD chart" switch
+# on, the panel draws candlesticks plus Bollinger Bands, and that is the look worth showing.
 SINGLES = {
     "lcd-dashboard.png": "normal_p1_dashboard.png",
-    "lcd-chart-down.png": "normal_p2_chart_1d.png",
-    "lcd-chart-up.png": "up_p2_chart_5d.png",
+    "lcd-chart-down.png": "bbon_chart_1d_p10.png",
+    "lcd-chart-up.png": "bbup_chart_5d_p20.png",
     "lcd-positions.png": "many_p3_positions_w0.png",
     "lcd-realised.png": "realised_p4_realised.png",
     "lcd-empty.png": "empty_p1_dashboard.png",
@@ -36,7 +38,7 @@ SINGLES = {
 # 2x2 contact sheet of the four rotating screens, reading order = nav order
 GRID = [
     "normal_p1_dashboard.png",
-    "normal_p2_chart_1d.png",
+    "bbon_chart_1d_p10.png",
     "many_p3_positions_w0.png",
     "realised_p4_realised.png",
 ]

@@ -18,20 +18,25 @@ the firmware's real drawing code run on a PC against a mock `TFT_eSPI` with samp
 
 ## Screenshots
 
-| Dashboard (portfolio + ^GSPC card) | Market chart, down day (red) |
+| Dashboard (portfolio + ^GSPC card) | Market chart 1D, down day (BB + candles) |
 |---|---|
-| ![Dashboard](docs/img/lcd-dashboard.png) | ![Chart on a down day](docs/img/lcd-chart-down.png) |
+| ![Dashboard](docs/img/lcd-dashboard.png) | ![Chart on a down day, candles with Bollinger Bands](docs/img/lcd-chart-down.png) |
 
-| Market chart, up day (green) | Positions (8 lots, 1 of 3 pages) |
+| Market chart 5D, up day (BB + candles) | Positions (8 lots, 1 of 3 pages) |
 |---|---|
-| ![Chart on an up day](docs/img/lcd-chart-up.png) | ![Positions table](docs/img/lcd-positions.png) |
+| ![Chart on an up day, candles with Bollinger Bands](docs/img/lcd-chart-up.png) | ![Positions table](docs/img/lcd-positions.png) |
 
 | Realised P/L | First boot, no positions yet |
 |---|---|
 | ![Realised P/L](docs/img/lcd-realised.png) | ![Empty portfolio](docs/img/lcd-empty.png) |
 
 The plot is drawn green or red by the sign of the range's change, so 1D is measured against
-the previous close and 5D / 1M against their own first bar. Offline and no-data states are
+the previous close and 5D / 1M against their own first bar. Both chart images above have the
+**BB + candles** switch on (web Settings tab): bodies and wicks come from the stored open /
+high / low, each bar coloured by its own close against its own open, with Bollinger Bands
+(SMA + 2 sigma) over them and the period actually used printed in the corner - `BB 10` on the
+79-bar 1D, `BB 20` on the 112-bar 5D. With the switch off the same page is the plain
+single-colour line and fill. Offline and no-data states are
 drawn too (`docs/img/lcd-offline.png`), as is the boot banner.
 
 ## Features

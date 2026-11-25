@@ -152,9 +152,17 @@ static void build(AppState &a, Scn s, uint32_t epoch) {
   if (s == S_STALE) { a.sp.failed = true; for (int i = 0; i < a.book.n; i++) a.book.q[i].failed = true; for (auto &c : a.charts) c.failed = true; }
   if (s == S_UP) {
     // a rising period: the plot line and its fill must be GREEN for all three
-    // ranges (the fixtures are all falling, so they only cover the red path)
+    // ranges (the fixtures are all falling, so they only cover the red path).
+    // Reverse the whole bar, not just the close: a candle whose open/high/low come from a
+    // different bar than its close is pure noise (it drew a fan of giant wicks before).
+    // Timestamps stay put, so the x axis and the labels are untouched.
     for (auto &c : a.charts) {
-      for (uint16_t i = 0, j = c.n ? c.n - 1 : 0; i < j; i++, j--) { float t2 = c.v[i]; c.v[i] = c.v[j]; c.v[j] = t2; }
+      for (uint16_t i = 0, j = c.n ? c.n - 1 : 0; i < j; i++, j--) {
+        float t2 = c.v[i]; c.v[i] = c.v[j]; c.v[j] = t2;
+        t2 = c.o[i]; c.o[i] = c.o[j]; c.o[j] = t2;
+        t2 = c.h[i]; c.h[i] = c.h[j]; c.h[j] = t2;
+        t2 = c.l[i]; c.l[i] = c.l[j]; c.l[j] = t2;
+      }
       c.base = c.v[0] * 0.98f;              // reference below the close -> change > 0
     }
     a.sp.last = a.sp.prevClose * 1.02;      // header change also positive
@@ -284,6 +292,16 @@ int main(int argc, char **argv) {
       printf("  PROBLEM bb: candles not drawn (green %zu red %zu)\n", green, red); g_problems++;
     } else printf("bb: candles %zu green / %zu red bar pixels\n", green, red);
   }
+
+  // the same bands over an up day: the README keeps one chart image per direction, and both
+  // should show what the panel draws with the switch on (candles + bands), not the old line.
+  build(a, S_UP, NOW_CLOSED);
+  UI::setScreen(UI::SC_CHART);
+  a.settings.bbLcd = 1;
+  a.settings.bbLcdP = 20;
+  UI::setRange(RANGE_5D);
+  showFrame("bbup_chart_5d_p20");
+  a.settings.bbLcd = 0;                    // back to the shipped default for the frames below
 
   // incremental path: change a quote and let the 4 Hz cache repaint without a
   // full invalidate; the result must match a fresh render of the same state.
