@@ -1,0 +1,10 @@
+# Flash log (ESP32-CYD-SP500) - target is always sp500-32.local / 192.168.1.161.
+# sp500.local / 192.168.1.187 is the ESP8266 SmallTV (separate repo) - never flash it.
+
+2026-11-25  CYD fw 1.1.4  commit 740f6e3  method: espota (pio -e cyd_ota -t upload --upload-port sp500-32.local), 67 s
+           touch gestures ended at (0,0) so taps read as swipes; actions split into A_SWIPE/A_SCREEN.
+2026-11-25  CYD fw 1.1.5  commit 4b9370e  method: HTTP POST /update (multipart "firmware" field), then /api/system/restart
+           LCD dim: backlight 5..100% setting, LEDC PWM 5 kHz / 10 bit on TFT_BL (GPIO 21), applied from
+           UI::begin() and live from POST /api/settings (restart:false).
+           Verified live: default 100, limits [5,100] in API, POST 30 applied, 0 rejected
+           ("backlight must be 5..100"), 40 survived a reboot, restored to 100.
