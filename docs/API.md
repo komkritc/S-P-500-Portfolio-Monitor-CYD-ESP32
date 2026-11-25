@@ -88,12 +88,14 @@ While `scanning` the previous list (possibly empty) is returned. Poll every ~1.5
 
 ### GET /api/settings
 ```json
-{"portfolioRefreshS":60,"quoteRefreshS":60,"chartRefreshS":300,"pageRotateS":8,
+{"portfolioRefreshS":60,"quoteRefreshS":60,"chartRefreshS":300,"pageRotateS":8,"backlight":100,
  "defaultRange":"1d","tzMode":"exchange","localOffsetMin":420,"hostname":"sp500","adminPassSet":false,
  "limits":{"portfolioRefreshS":[15,3600],"quoteRefreshS":[15,3600],"chartRefreshS":[60,3600],
-           "pageRotateS":[3,120],"localOffsetMin":[-720,840]}}
+           "pageRotateS":[3,120],"localOffsetMin":[-720,840],"backlight":[5,100]}}
 ```
 `pages` (`1..15`) and `charts` (`1..7`): bitmasks of the LCD pages / Market chart ranges that rotate (see the SmallTV docs). On the CYD they steer the automatic rotation: a screen whose `pages` bit is 0 is skipped (the bit values are historical and fixed: Portfolio=1, Positions=2, Chart=4, Realised=8 - the checkbox numbers in the web UI show the LCD position instead), and each time the rotation enters the chart screen it steps to the next enabled `charts` range (1D=1, 5D=2, 1M=4). Touching a nav zone or a period button always works, so the masks can never lock you out of a screen. The LCD nav runs left to right **Dashboard | Chart | Positions | Realised P/L** (nav zone id == screen id; the `pages` bits keep their historical numbering, so a stored `config.json` still means the same pages). `defaultRange`: `1d`|`5d`|`1mo`. `tzMode`: `exchange` (America/New_York) | `local` (fixed UTC offset `localOffsetMin`, no DST). Bangkok is `local` + `420` (ICT has never observed DST, so a fixed offset is exact); the web UI's **Zone preset** dropdown offers Bangkok, UTC+8, Tokyo/Seoul, India and UTC and fills the offset for you. In `local` mode the zone shown by `/api/market` is `UTC+07:00` while `tzName` stays the instrument's exchange zone - NYSE session hours and the OPEN/CLOSED badge always follow America/New_York rules, never the display zone.
+
+`backlight` (`5..100`, added in fw 1.1.5): LCD brightness in percent. POST it on its own and the panel dims straight away - no restart, and the **LCD brightness (%)** slider on the Settings tab does exactly that when you let go of it. The backlight pin is driven by 5 kHz / 10-bit PWM, and the slider position is squared onto duty because an LED string's light output is linear in duty while the eye is not: 50 % is about a quarter of the light, 75 % a little over half. 5 % is a hard floor (2.3 % duty) - the screen can never be dimmed past the point where only the web UI could bring it back, and the bottom of the slider always changes something. The level is kept in `settings.json`, so it survives reboots and OTA updates; a settings file written before 1.1.5 simply gets 100.
 
 ### GET /api/positions/job
 State of the last "add position" request: `{"state":"idle|pending|ok|error","error":"","symbol":"^GSPC","updated":false}`.

@@ -39,6 +39,9 @@ drawn too (`docs/img/lcd-offline.png`), as is the boot banner.
 * **Touch navigation.** A 4-zone nav bar (Dashboard | Chart | Positions | Realised), 1D / 5D
   / 1M buttons right on the chart, and page scrolling on the Positions page. Auto-rotation
   still runs in the background, and a `pages` checkbox mask decides which screens it visits.
+* **Dimmable panel.** **LCD brightness (%)** on the web Settings tab dims the backlight the
+  moment you let go of the slider (5 kHz PWM, 5 % floor so the screen can never go dark for
+  good); the level is kept in flash and survives reboots and OTA updates.
 * **Portfolio on glass:** NAV, unrealised P/L in THB and %, invested capital in whole baht,
   position count, a live `^GSPC` card with open / high / low / prev, and a separate Realised
   P/L page (all-time, this year, lifetime, sales, reversals, last sale).
@@ -144,7 +147,7 @@ Portfolio / Market / Details / Sales / Wi-Fi / Settings / System tabs. Add a pos
 symbol + date + THB amount (the device looks up that day's close, never a later bar) or by
 quantity and price. Dates in the UI are `dd/mm/yyyy`; the API speaks ISO.
 Settings: refresh intervals, page-rotate seconds, LCD page and chart-range masks, default
-range, time zone, hostname, admin password.
+range, time zone, LCD brightness, hostname, admin password.
 
 ## API
 

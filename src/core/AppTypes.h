@@ -5,7 +5,7 @@
 #include <stddef.h>
 #include <math.h>
 
-#define FW_VERSION "1.1.4"
+#define FW_VERSION "1.1.5"
 #define SP500_SYMBOL "^GSPC"
 
 static const uint8_t  MAX_POSITIONS = 12;   // open lots; trimmed from 24 to fit the sale ledger in RAM
@@ -118,6 +118,10 @@ struct ChartStats {
   double first, last, base, change, changePct, minV, maxV;
 };
 
+// LCD backlight bounds (percent). 5 % is the floor, not 0: the CYD's LED string is
+// barely lit below that, and a fully dark panel could only be recovered over Wi-Fi.
+constexpr int32_t BL_MIN_PCT = 5, BL_MAX_PCT = 100;
+
 struct Settings {
   uint16_t portfolioRefreshS;
   uint16_t quoteRefreshS;
@@ -126,6 +130,7 @@ struct Settings {
   uint8_t  defaultRange;      // ChartRange
   uint8_t  charts;            // chart ranges the LCD Market page cycles through: bit0 1D, bit1 5D, bit2 1M (default 7)
   uint8_t  pages;             // LCD pages in the rotation: bit0 Portfolio, bit1 Positions, bit2 Market, bit3 Realised P/L (default 15)
+  uint8_t  backlight;         // LCD backlight percent (BL_MIN_PCT..BL_MAX_PCT, see above)
   uint8_t  tzMode;            // 0 = exchange (America/New_York), 1 = fixed local offset
   int16_t  localOffsetMin;
   char     hostname[24];

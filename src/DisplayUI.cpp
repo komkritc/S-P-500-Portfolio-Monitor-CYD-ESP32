@@ -956,6 +956,7 @@ void drawHeaderTitle(const char* s) {
 namespace UI {
 
 void begin() {
+  setBacklight(g_app.settings.backlight);   // honour the saved dim level (after tft.init)
   tft.fillScreen(BG);
   drawDashStatics();
   drawHeader();
@@ -976,6 +977,53 @@ void bootBanner(int pct, const char* msg) {
   if (pct > 0)
     tft.fillRoundRect(62, 142, (196 * pct) / 100, 8, 4, Cfg::BLUE);
 }
+
+// ---- LCD backlight (dim) -------------------------------------------------
+// TFT_eSPI only ever switches the backlight on (a digitalWrite in initDisplay), so
+// dimming is ours: LEDC PWM on the CYD's TFT_BL (GPIO 21), 5 kHz / 10 bit.
+// An LED string's light output is roughly linear in duty, while the eye follows
+// roughly output^0.35 - so a linear slider would read near-full until its last few
+// ticks. Squaring the position spreads the perceived steps evenly: 50 % is a quarter
+// of the light, 75 % a little over half. The mapping runs from the floor duty at 5 %
+// up to full at 100 %, so the bottom of the slider always does something and the
+// panel can never go fully dark (the web UI is the only way back). 24/1024 = 2.3 %
+// duty stays well above LED dropout at 5 kHz. ESP32 core 2.x API; the core 3.x
+// names sit behind a version guard, and the host preview harness (no ESP32, no
+// TFT_BL) still runs the maths with the writes guarded out.
+enum { BL_PWM_CH = 0, BL_PWM_HZ = 5000, BL_PWM_RES = 10,
+       BL_MIN_DUTY = 24, BL_MAX_DUTY = 1023 };
+int g_blPct = -1;
+
+void setBacklight(int pct) {
+  if (pct < (int)BL_MIN_PCT) pct = (int)BL_MIN_PCT;
+  if (pct > (int)BL_MAX_PCT) pct = (int)BL_MAX_PCT;
+  if (pct == g_blPct) return;                     // LEDC untouched unless it changed
+  g_blPct = pct;
+  const float t = (float)(pct - (int)BL_MIN_PCT) / (float)((int)BL_MAX_PCT - (int)BL_MIN_PCT);
+  const unsigned d = (unsigned)lroundf((float)BL_MIN_DUTY + (BL_MAX_DUTY - BL_MIN_DUTY) * t * t);
+  Serial.printf("[ui] backlight %d%% duty=%u\n", pct, d);
+#if defined(ESP32) && defined(TFT_BL)
+  static bool attached = false;
+  if (!attached) {
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+    ledcAttach(TFT_BL, BL_PWM_HZ, BL_PWM_RES);
+#else
+    ledcSetup(BL_PWM_CH, BL_PWM_HZ, BL_PWM_RES);
+    ledcAttachPin(TFT_BL, BL_PWM_CH);
+#endif
+    attached = true;   // must happen after tft.init(): that claims TFT_BL as OUTPUT first
+  }
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+  ledcWrite(TFT_BL, d);
+#else
+  ledcWrite(BL_PWM_CH, d);
+#endif
+#else
+  (void)d;   // host preview harness: the curve runs, there is just no PWM to drive
+#endif
+}
+
+int backlightPct() { return g_blPct; }
 
 void setScreen(int s) {
   if (s < 0) s = 0;

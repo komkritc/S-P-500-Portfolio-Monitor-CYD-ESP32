@@ -18,6 +18,7 @@
 #include "../storage/StorageManager.h"
 #include "../storage/SaleStore.h"
 #include "../core/PlatformShim.h"
+#include "../DisplayUI.h"   // UI::setBacklight (LCD dim)
 #include "../../web/web_assets.h"
 
 namespace webserver {
@@ -536,6 +537,7 @@ static void postSettings() {
   g_app.settings = n;
   if (!storage::saveSettings(n)) { g_app.settings = old; sendErr(500, "saving to flash failed"); return; }
   g_app.effQuoteS = n.quoteRefreshS; g_app.effChartS = n.chartRefreshS; g_app.effPortfolioS = n.portfolioRefreshS;
+  if (old.backlight != n.backlight) UI::setBacklight(n.backlight);   // dim applies at once, no restart
   Reply r(200); JsonWriter &w = r.w;
   w.beginObj().kBool("ok", true).kBool("restart", hc || strcmp(old.adminPass, n.adminPass) != 0);
   w.key("settings"); settingsWrite(w, n, false, true);

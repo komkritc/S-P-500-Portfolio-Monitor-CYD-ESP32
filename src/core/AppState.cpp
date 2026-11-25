@@ -12,6 +12,7 @@ void settingsDefaults(Settings &s) {
   s.defaultRange = RANGE_1D;
   s.charts = 7;                 // 1D, 5D and 1M
   s.pages = 15;                 // all four pages
+  s.backlight = BL_MAX_PCT;     // full brightness; the web Settings slider dims it
   s.tzMode = 0;
   s.localOffsetMin = 420;       // UTC+7 (the original sketch's GMT_OFFSET_SEC = 7 h)
   strcpy(s.hostname, "sp500");
