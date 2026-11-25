@@ -390,9 +390,17 @@ MarketStatus g_badgeLast = (MarketStatus)-1;
 int g_badgeX = -1, g_badgeY = -1, g_badgeW = 0;
 uint16_t g_badgeBg = Cfg::CARD;
 
-void drawBadge(int xRight, int y, MarketStatus s, uint16_t cardBg) {
+void drawBadge(int xRight, int y, MarketStatus s, uint16_t cardBg, bool hidePre = false) {
   uint16_t cbg;
   const uint16_t c = badgeColor(s, &cbg);
+  if (hidePre && s == MS_PRE) {
+    // dashboard choice: pre-market covers most of the day, a permanent chip is clutter.
+    // Clear any chip left by a previous OPEN/CLOSED state so the card never keeps a stale badge.
+    if (g_badgeW > 0 && g_badgeY == y)
+      tft.fillRect(g_badgeX - g_badgeW, y - 3, g_badgeW, 22, g_badgeBg);
+    g_badgeLast = s; g_badgeX = xRight; g_badgeY = y; g_badgeW = 0; g_badgeBg = cardBg;
+    return;
+  }
   if (s == g_badgeLast && xRight == g_badgeX && y == g_badgeY) return;
   if (g_badgeW > 0 && g_badgeY == y)
     tft.fillRect(g_badgeX - g_badgeW, y - 3, g_badgeW, 22, g_badgeBg);
@@ -560,7 +568,7 @@ void drawDashDynamic() {
       txtSlot(S_RO + i, Cfg::DASH_RX + Cfg::DASH_RW - 10, Cfg::DASH_ROW_Y0 + i * Cfg::DASH_ROW_DY, F2,
               Cfg::CARD, Cfg::CARD, true, "");
   }
-  drawBadge(Cfg::DASH_LX + Cfg::DASH_LW - 10, 45, qv.status, Cfg::CARD);
+  drawBadge(Cfg::DASH_LX + Cfg::DASH_LW - 10, 45, qv.status, Cfg::CARD, true);
 }
 
 // ---- positions -----------------------------------------------------------

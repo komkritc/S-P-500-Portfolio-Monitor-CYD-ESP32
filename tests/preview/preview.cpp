@@ -49,6 +49,7 @@ void setViewRange(uint8_t) {}
 static int g_problems = 0, g_frames = 0;
 static std::string g_dir;
 static const uint32_t NOW_CLOSED = 1795210600;  // Fri 2026-11-20 16:36:40 ET: market closed, quote = the 16:00 close
+static const uint32_t NOW_PRE   = 1795179600;  // Fri 2026-11-20 08:00 ET (13:00 UTC): inside the 04:00-09:30 ET pre-market window
 
 static std::string readFile(const std::string &p) {
   FILE *f = fopen(p.c_str(), "rb");
@@ -85,7 +86,7 @@ static void addPos(AppState &a, const char *sym, const char *date, double qty, d
   portfolioAdd(a.positions, a.posCount, a.pmeta, sym, date, qty, buy, 0);
 }
 
-enum Scn { S_NORMAL, S_LOSS, S_MANY, S_MISSING, S_STALE, S_EMPTY, S_NODATA, S_BIG, S_REALISED, S_REALBIG, S_UP };
+enum Scn { S_NORMAL, S_LOSS, S_MANY, S_MISSING, S_STALE, S_EMPTY, S_NODATA, S_BIG, S_REALISED, S_REALBIG, S_UP, S_PRE };
 
 static void addSale(AppState &a, const char *id, const char *date, double realised) {
   SaleRecord r; memset(&r, 0, sizeof r);
@@ -229,13 +230,17 @@ int main(int argc, char **argv) {
   UI::bootBanner(60, "Loading portfolio...");
   dump("boot_banner");
 
-  struct { Scn s; const char *n; } scn[] = {
-    {S_NORMAL, "normal"}, {S_LOSS, "loss"}, {S_MANY, "many"}, {S_MISSING, "missing"},
-    {S_STALE, "stale"}, {S_EMPTY, "empty"}, {S_NODATA, "nodata"}, {S_BIG, "bignum"},
-    {S_REALISED, "realised"}, {S_REALBIG, "realbig"}, {S_UP, "up"}};
+  struct { Scn s; const char *n; uint32_t ep; } scn[] = {
+    {S_NORMAL, "normal", NOW_CLOSED}, {S_LOSS, "loss", NOW_CLOSED}, {S_MANY, "many", NOW_CLOSED},
+    {S_MISSING, "missing", NOW_CLOSED}, {S_STALE, "stale", NOW_CLOSED}, {S_EMPTY, "empty", NOW_CLOSED},
+    {S_NODATA, "nodata", NOW_CLOSED}, {S_BIG, "bignum", NOW_CLOSED},
+    {S_REALISED, "realised", NOW_CLOSED}, {S_REALBIG, "realbig", NOW_CLOSED}, {S_UP, "up", NOW_CLOSED},
+    // pre-market clock: the dashboard must show NO status chip, while the Market page
+    // still shows the yellow PRE-MKT badge (fw 1.3.2 dashboard simplification).
+    {S_PRE, "pre", NOW_PRE}};
   char n[64];
   for (auto &sc : scn) {
-    build(a, sc.s, NOW_CLOSED);
+    build(a, sc.s == S_PRE ? S_NORMAL : sc.s, sc.ep);
 
     UI::setScreen(UI::SC_DASH);
     snprintf(n, sizeof n, "%s_p1_dashboard", sc.n); showFrame(n);
