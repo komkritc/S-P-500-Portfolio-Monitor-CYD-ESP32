@@ -183,7 +183,9 @@ int32_t displayOffsetSec(uint32_t utc, uint8_t tzMode, int16_t localOffsetMin, c
     int o = localOffsetMin;
     if (abbrBuf) {
       int a = o < 0 ? -o : o;
-      snprintf(abbrBuf, 10, "UTC%c%02d:%02d", o < 0 ? '-' : '+', a / 60, a % 60);
+      // settings validate localOffsetMin to -720..840, so hours are always <= 14 (two digits);
+      // the %100 documents that bound for the compiler and is a no-op for every valid setting.
+      snprintf(abbrBuf, 10, "UTC%c%02d:%02d", o < 0 ? '-' : '+', (a / 60) % 100, a % 60);
       if (abbr) *abbr = abbrBuf;
     }
     return o * 60;

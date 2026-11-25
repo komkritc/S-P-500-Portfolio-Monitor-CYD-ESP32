@@ -668,7 +668,7 @@ RecoverResult recover(Position *pos, uint8_t &n, PortfolioMeta &m, RealisedSumma
 
 uint8_t statusOf(const SaleRecord &r, bool reversed) {
   if (r.type == REC_REVERSAL) return REC_REVERSAL;
-  return reversed ? SALE_ST_REVERSED : REC_SALE;
+  return reversed ? (uint8_t)SALE_ST_REVERSED : (uint8_t)REC_SALE;
 }
 
 }  // namespace sale

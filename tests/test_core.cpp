@@ -473,13 +473,13 @@ static void testPortfolio() {
   CHECK(pos[0].id == 1 && pos[1].id == 2 && pos[0].oqty == 12 && pm.nextLotId == 4 && pm.ver >= 4);  // v1.1 lot ids + original qty
   CHECK(portfolioDelete(pos, n, pm, 0) && n == 2 && !strcmp(pos[0].date, "2026-01-03") && !portfolioDelete(pos, n, pm, 5));
   // caps
-  Position big[MAX_POSITIONS]; uint8_t bn = 0; char d[11]; PortfolioMeta bm; memset(&bm, 0, sizeof bm);
-  for (int i = 0; i < MAX_POSITIONS; i++) { snprintf(d, sizeof d, "2026-01-%02d", i % 28 + 1); char sy[8]; snprintf(sy, sizeof sy, "S%d", i % 8); (void)portfolioAdd(big, bn, bm, sy, d, 1, 1, 0); }
+  Position big[MAX_POSITIONS]; uint8_t bn = 0; char d[16]; PortfolioMeta bm; memset(&bm, 0, sizeof bm);
+  for (int i = 0; i < MAX_POSITIONS; i++) { snprintf(d, sizeof d, "2026-01-%02d", i % 28 + 1); char sy[16]; snprintf(sy, sizeof sy, "S%d", i % 8); (void)portfolioAdd(big, bn, bm, sy, d, 1, 1, 0); }
   CHECK(bn == MAX_POSITIONS || bn >= 20);
   while (bn < MAX_POSITIONS) { snprintf(d, sizeof d, "2025-02-%02d", bn % 28 + 1); if (portfolioAdd(big, bn, bm, "S1", d, 1, 1, 0) == ADD_FULL) break; }
   CHECK(portfolioAdd(big, bn, bm, "S1", "2020-05-05", 1, 1, 0) == ADD_FULL);
   { Position p9[MAX_POSITIONS]; uint8_t k = 0; PortfolioMeta m9; memset(&m9, 0, sizeof m9);
-    for (int i = 0; i < 8; i++) { char sy[8]; snprintf(sy, sizeof sy, "T%d", i); CHECK(portfolioAdd(p9, k, m9, sy, "2026-01-02", 1, 1, 0) == ADD_OK); }
+    for (int i = 0; i < 8; i++) { char sy[16]; snprintf(sy, sizeof sy, "T%d", i); CHECK(portfolioAdd(p9, k, m9, sy, "2026-01-02", 1, 1, 0) == ADD_OK); }
     CHECK(portfolioAdd(p9, k, m9, "T9", "2026-01-02", 1, 1, 0) == ADD_TOO_MANY_SYMBOLS); CHECK(portfolioAdd(p9, k, m9, "T3", "2026-01-05", 1, 1, 0) == ADD_OK); }
   double q; CHECK(qtyFromThb(10000, 6382.1, q) && fabs(q - 1.566) < 1e-3); CHECK(!qtyFromThb(0, 5, q) && !qtyFromThb(5, 0, q) && !qtyFromThb(NAN, 5, q));
 
