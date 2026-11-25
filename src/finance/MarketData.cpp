@@ -32,8 +32,8 @@ static uint32_t s_nextStart = 0;
 static uint8_t s_viewRange = RANGE_1D;
 static bool s_started = false, s_cacheDirty = false, s_cacheLoaded = false;
 static uint32_t s_lastCacheSave = 0;
-static AddJob s_add = {JOB_IDLE, "", "", false};
-static bool s_addQueued = false;
+static AddJob s_add = {JOB_IDLE, "", "", "", false, false, NAN, NAN};
+static bool s_addQueued = false, s_addPreview = false;
 static char s_addSym[SYMBOL_LEN], s_addDate[11];
 static double s_addThb = 0;
 static SalePriceJob s_salePrice = {JOB_IDLE, "", "", "", NAN};
@@ -116,7 +116,7 @@ void positionsChanged() {
 
 void setViewRange(uint8_t r) { if (r < RANGE_COUNT) s_viewRange = r; }
 
-bool requestAddByThb(const char *symbol, const char *date, double thb) {
+bool requestAddByThb(const char *symbol, const char *date, double thb, bool preview) {
   if (s_add.state == JOB_PENDING) return false;
   char sym[SYMBOL_LEN];
   memset(&s_add, 0, sizeof s_add);
@@ -126,7 +126,7 @@ bool requestAddByThb(const char *symbol, const char *date, double thb) {
   if (!isNum(thb) || thb <= 0) { s_add.state = JOB_ERROR; strlcpy(s_add.error, "THB amount must be > 0", sizeof s_add.error); return true; }
   uint32_t ep = nowEpoch();
   if (ep && utcMidnight(y, m, d) > ep + 86400) { s_add.state = JOB_ERROR; strlcpy(s_add.error, addResultText(ADD_BAD_DATE), sizeof s_add.error); return true; }
-  strcpy(s_addSym, sym); strcpy(s_addDate, date); s_addThb = thb;
+  strcpy(s_addSym, sym); strcpy(s_addDate, date); s_addThb = thb; s_addPreview = preview;
   strcpy(s_add.symbol, sym);
   s_add.state = JOB_PENDING;
   s_addQueued = true;
@@ -266,13 +266,25 @@ static void commitJob(uint32_t now) {
       int y, m, d;
       double buy = NAN;
       bool exact = false;
+      uint32_t barTs = 0;
       parseIsoDate(s_addDate, y, m, d);
       int32_t off = (s_parser.tzName[0] && strcmp(s_parser.tzName, "America/New_York") != 0) ? s_parser.gmtOffset : EXCHANGE_NY;
-      if (!pickCloseOnDate(s_stageT, s_stageV, s_parser.count, y, m, d, buy, &exact, off)) {
+      if (!pickCloseOnDate(s_stageT, s_stageV, s_parser.count, y, m, d, buy, &exact, off, &barTs)) {
         s_add.state = JOB_ERROR; strlcpy(s_add.error, "no close price on or before that date", sizeof s_add.error); return;
       }
+      // The session the price really came from: a weekend or holiday purchase date silently borrows the
+      // close of the previous trading day, so the UI has to say so and ask before writing the row.
+      LocalTime bl = toLocal(barTs, off == EXCHANGE_NY ? nyOffsetSec(barTs) : off);
+      snprintf(s_add.priceDate, sizeof s_add.priceDate, "%04d-%02d-%02d", bl.y, bl.m, bl.d);
+      s_add.exact = exact; s_add.price = buy;
       double qty;
       if (!qtyFromThb(s_addThb, buy, qty)) { s_add.state = JOB_ERROR; strlcpy(s_add.error, "invalid amount / price", sizeof s_add.error); return; }
+      s_add.qty = qty;
+      if (s_addPreview) {
+        s_add.state = JOB_OK;
+        Serial.printf("[add] preview %s %s thb=%.2f buy=%.6f qty=%.6f exact=%d from=%s\n", s_addSym, s_addDate, s_addThb, buy, qty, (int)exact, s_add.priceDate);
+        break;
+      }
       AddResult r = portfolioAdd(g_app.positions, g_app.posCount, g_app.pmeta, s_addSym, s_addDate, qty, buy, ep);
       if (r != ADD_OK && r != ADD_UPDATED) { s_add.state = JOB_ERROR; strlcpy(s_add.error, addResultText(r), sizeof s_add.error); return; }
       bool saved = storage::savePortfolio(g_app);

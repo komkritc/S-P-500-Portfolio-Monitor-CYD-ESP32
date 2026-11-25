@@ -103,19 +103,20 @@ bool parseRange(const char *s, uint8_t &r) {
   return false;
 }
 
-bool pickCloseOnDate(const uint32_t *t, const float *v, uint16_t n, int y, int m, int d, double &price, bool *exact, int32_t fixedOffsetSec) {
+bool pickCloseOnDate(const uint32_t *t, const float *v, uint16_t n, int y, int m, int d, double &price, bool *exact, int32_t fixedOffsetSec, uint32_t *barTs) {
   const int64_t target = daysFromCivil(y, m, d);
   int best = -1;                                     // newest valid bar on a day before the target
   for (uint16_t i = 0; i < n; i++) {
     if (!(v[i] > 0)) continue;
     LocalTime lt = toLocal(t[i], fixedOffsetSec == EXCHANGE_NY ? nyOffsetSec(t[i]) : fixedOffsetSec);
     int64_t day = daysFromCivil(lt.y, lt.m, lt.d);
-    if (day == target) { price = v[i]; if (exact) *exact = true; return true; }
+    if (day == target) { price = v[i]; if (exact) *exact = true; if (barTs) *barTs = t[i]; return true; }
     if (day < target) best = i;                      // bars are time-ordered
   }
   if (best < 0) return false;                        // date precedes all data: never guess a price
   price = v[best];
   if (exact) *exact = false;
+  if (barTs) *barTs = t[best];
   return true;
 }
 

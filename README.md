@@ -93,7 +93,8 @@ Yahoo Finance (TLS) -> MarketData (scheduler, backoff) -> AppState (raw inputs)
 | Portfolio maths on device | **verified**: LCD and `/api/portfolio` agree (invested 10,600,000 / NAV 11,005,643.93 / 3 positions) |
 | LCD layout | host-rendered (71 frames, 0 overlap or overflow) **and** looked at on the real panel; several spacing bugs were found that way and fixed |
 | Web dashboard against the live device | portfolio, settings (time zone), positions |
-| Host unit tests | 866 checks pass (738 core + 128 sale engine) |
+| Host unit tests | **2,210 C++ checks + 157 LCD-frame JS checks + 20 add-flow JS checks** pass (2026-11-26) |
+| Add a position by THB amount **confirms the price in a dialog** (fw 1.3.6, dialog in 1.3.7) | Same two-step flow as the ESP8266 build: the lookup names the session its close came from (`priceDate`/`exact` in `/api/positions/job`), a modal dialog shows that close, the session with its weekday, the quantity and the cost basis (with an amber "was not a trading day" strip when the purchase date had no session), and nothing is written until *Confirm and add* sends those exact numbers back. **Round trip run against the live device:** previewing 10,000 THB on Saturday 21/11/2026 returned `buy 6910.39`, `qty 1.447096`, `priceDate 2026-11-20`, `exact false`, and the stored row count did not move. `tests/add_flow_check.js` drives the page's real add-position code in a fake DOM (**20 checks**, now part of `run_tests.py`) and also passed against **the page this device serves** |
 | Touch navigation on the real panel | implemented; nav zones and period buttons used during layout work, not separately regression-tested |
 | Sale ledger on the CYD hardware | host-tested only (this device has 0 sale records) |
 | Rescue AP, captive portal, long-run soak | not exercised on this device |
@@ -159,7 +160,11 @@ boots with it blank and stays offline until Wi-Fi is supplied by the portal inst
 ## Web dashboard
 
 Portfolio / Market / Holdings / Sales / Wi-Fi / Settings / System tabs. Add a position by
-symbol + date + THB amount (the device looks up that day's close, never a later bar) or by
+symbol + date + THB amount (the device looks up that day's close, never a later bar, and since
+fw 1.3.6-1.3.7 **confirms it in a modal dialog before anything is saved**: the dialog shows the
+close, the session it was priced from with the weekday, the quantity and the cost basis, and on a
+weekend or holiday an amber strip says which earlier trading day is being borrowed - only
+*Confirm and add* writes the row) or by
 quantity and price. The Holdings table sorts by any column (click a header) and clicking a row
 expands that purchase lot's ledger history - every sale record that touched the lot, how much it
 took, and the open quantity before/after (net sold cancels automatically when a sale is reversed).

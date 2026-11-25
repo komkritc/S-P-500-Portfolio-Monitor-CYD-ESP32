@@ -41,7 +41,9 @@ bool parseRange(const char *s, uint8_t &r);
 // (no price is invented). Returns false when no bar qualifies.
 // `fixedOffsetSec` = exchange UTC offset for non-US symbols; EXCHANGE_NY (default) uses the New York DST rules.
 static const int32_t EXCHANGE_NY = 0x7fffffff;
-bool pickCloseOnDate(const uint32_t *t, const float *v, uint16_t n, int y, int m, int d, double &price, bool *exact = nullptr, int32_t fixedOffsetSec = EXCHANGE_NY);
+// When *exact is false the close was borrowed from that earlier session: `barTs` (optional) reports the
+// bar that was used, and the caller MUST show the user its date instead of silently inventing one.
+bool pickCloseOnDate(const uint32_t *t, const float *v, uint16_t n, int y, int m, int d, double &price, bool *exact = nullptr, int32_t fixedOffsetSec = EXCHANGE_NY, uint32_t *barTs = nullptr);
 
 // "Nice" axis ticks (1/2/2.5/5 x 10^k) inside [lo, hi], at most maxN. Returns the count; ticks[] ascending.
 // Pure, host-tested. A flat series (hi == lo) yields one tick at that value.

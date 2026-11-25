@@ -650,6 +650,11 @@ static void testPickClose() {
   { uint32_t t2[2] = {U(2026, 11, 20, 14, 30), U(2026, 11, 23, 14, 30)}; float v2[2] = {7, 8};
     CHECK(pickCloseOnDate(t2, v2, 2, 2026, 11, 22, px, &ex) && px == 7 && !ex); }         // weekend between bars: NOT the bar after the date
   { float z[2] = {0, 0}; uint32_t t2[2] = {1, 2}; CHECK(!pickCloseOnDate(t2, z, 2, 2026, 11, 22, px)); CHECK(!pickCloseOnDate(t2, z, 0, 2026, 11, 22, px)); }
+  // barTs names the bar the price came from: the add-position confirm has to show the session it
+  // borrowed when the purchase date itself had no session.
+  uint32_t bt = 0;
+  CHECK(pickCloseOnDate(t, v, 5, 2026, 11, 18, px, &ex, EXCHANGE_NY, &bt) && px == 102 && ex && bt == t[2]);
+  CHECK(pickCloseOnDate(t, v, 5, 2026, 11, 22, px, &ex, EXCHANGE_NY, &bt) && px == 104 && !ex && bt == t[4]);
   // non-US exchange: Tokyo bars stamped 09:00 JST (= 00:00 UTC) belong to the Tokyo date, not the previous ET date
   { uint32_t tk[2] = {U(2026, 11, 19, 0, 0), U(2026, 11, 20, 0, 0)}; float vk[2] = {10, 11};
     CHECK(pickCloseOnDate(tk, vk, 2, 2026, 11, 20, px, &ex, 9 * 3600) && px == 11 && ex);

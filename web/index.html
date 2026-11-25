@@ -116,6 +116,17 @@ dt{color:var(--muted)}dd{margin:0;word-break:break-word}
 #ts div.e{background:var(--dnbg2);border-color:var(--down)}
 #ov{position:fixed;inset:0;background:var(--ovl);z-index:30;display:none;align-items:center;justify-content:center;text-align:center;padding:20px}
 #ov.on{display:flex}
+#cf{position:fixed;inset:0;background:rgba(2,6,12,.62);z-index:40;display:none;align-items:center;justify-content:center;padding:16px}
+#cf.on{display:flex}
+#cf>div{background:var(--panel);border:1px solid var(--bd);border-radius:10px;width:100%;max-width:420px;padding:16px;text-align:left;box-shadow:0 14px 44px rgba(0,0,0,.5)}
+#cf h3{margin:0;font-size:16px}
+#cf .sb{color:var(--muted);font-size:12px;margin:3px 0 12px}
+#cf .kv{display:grid;grid-template-columns:1fr auto;gap:7px 12px;font-size:13px;border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:10px}
+#cf .kv span{color:var(--muted)}
+#cf .kv b{font-weight:600;text-align:right;font-variant-numeric:tabular-nums}
+#cf .wn{background:var(--warnbg);border:1px solid var(--warnbd);color:var(--warntx);border-radius:6px;padding:8px 10px;font-size:12px;margin-bottom:10px;line-height:1.45}
+#cf .ft{display:flex;gap:8px;justify-content:flex-end}
+#cf .ft .btn{min-width:104px}
 @media(max-width:900px){.cols{grid-template-columns:1fr}}
 @media(max-width:700px){
 main{padding:10px}header{padding:8px 10px 0}
@@ -176,8 +187,8 @@ dl{grid-template-columns:1fr;gap:0}dd{margin-bottom:6px}
 <label>Quantity<input id="a-qty" type="number" step="any" min="0" inputmode="decimal"></label>
 <label>Buy price (index points)<input id="a-buy" type="number" step="any" min="0" inputmode="decimal"></label>
 </div></details>
-<div class="g" style="font-size:12px;margin-bottom:8px">With a THB amount the device looks up the closing price on that date (may take a few seconds). The same symbol and date updates the existing row.</div>
-<button class="btn p" id="a-go" type="submit">Add position</button> <span id="a-msg"></span>
+<div class="g" style="font-size:12px;margin-bottom:8px">THB amount: the device finds the close on that date (or the close of the last session before it, and it says which). Nothing is saved until you confirm in the dialog. Same symbol and date updates the existing row.</div>
+<div class="row"><button class="btn p" id="a-go" type="submit">Look up close price</button> <span id="a-msg"></span></div>
 </form></div>
 </section>
 
@@ -275,6 +286,18 @@ If the device cannot join your Wi-Fi (or has no saved network) it starts its own
 </main>
 <div id="ts"></div>
 <div id="ov"><div><div class="sp" style="width:28px;height:28px"></div><p id="ov-t" class="hl"></p></div></div>
+<div id="cf"><div role="dialog" aria-modal="true" aria-labelledby="cf-t">
+<h3 id="cf-t">Confirm this purchase</h3><div class="sb" id="cf-sub"></div>
+<div class="kv">
+<span>Amount paid</span><b id="cf-thb"></b>
+<span>Close price</span><b id="cf-buy"></b>
+<span>Priced from</span><b id="cf-day"></b>
+<span>Quantity</span><b id="cf-qty"></b>
+<span>Cost basis</span><b id="cf-cost"></b>
+</div>
+<div class="wn" id="cf-wn" hidden></div>
+<div class="ft"><button class="btn" id="cf-no" type="button">Cancel</button><button class="btn p" id="cf-yes" type="button">Confirm and add</button></div>
+</div></div>
 <script>
 'use strict';
 const $=i=>document.getElementById(i),sl=ms=>new Promise(r=>setTimeout(r,ms));
@@ -286,7 +309,7 @@ function d2i(s){const m=/^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s||'');if(!m)return n
 if(y<1970||t.getUTCFullYear()!=y||t.getUTCMonth()!=mo-1||t.getUTCDate()!=d)return null;return m[3]+'-'+m[2]+'-'+m[1]}
 const NA='N/A',TABS=['portfolio','market','holdings','sales','wifi','settings','system'];
 const nf=(x,d)=>x==null||!isFinite(x)?NA:Number(x).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
-const thb=(x,s)=>x==null?NA:(x<0?'-':s&&x>0?'+':'')+'THB '+nf(Math.abs(x),2);
+const thb=(x,s,d)=>x==null?NA:(x<0?'-':s&&x>0?'+':'')+'THB '+nf(Math.abs(x),d==null?2:d);  // d=0 -> whole baht (invested capital)
 // invested capital is whole baht: "THB 10,600,000" reads better than
 // "THB 10,600,000.00", and the same rule is used on the LCD.
 const thb0=(x)=>x==null?NA:(x<0?'-':'')+'THB '+nf(Math.abs(x),0);
@@ -431,6 +454,30 @@ async function ldPos(){DP=await api('/api/positions');rpos($('pt'),CK);rpos($('d
 async function delPos(r,b){
 if(!confirm('Delete position '+r.symbol+' ('+i2d(r.date)+')?'))return;
 b.disabled=true;try{await api('/api/positions/delete',{index:r.i});toast('Position deleted');await ldPos()}catch(e){toast(e.message,1);b.disabled=false}}
+let AV=null,PE='Quantity and buy price must both be positive numbers';
+const DOW=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const dday=s=>{const p=/^(\d{4})-(\d\d)-(\d\d)$/.exec(s||'');if(!p)return i2d(s);
+  return DOW[new Date(Date.UTC(+p[1],+p[2]-1,+p[3])).getUTCDay()]+' '+i2d(s)};
+const amsg=(t,c)=>{const m=$('a-msg');m.className=c||'g';m.textContent=t||''};
+// The dialog IS the feature: it names the session the close came from, so a purchase dated on a
+// weekend or holiday can never be booked quietly against some older close.
+function cfOpen(){const a=AV;$('cf-sub').textContent=a.sym+' on '+i2d(a.date);
+$('cf-thb').textContent=thb(a.thb,0,0);$('cf-buy').textContent=nf(a.buy,2)+' pts';
+$('cf-day').textContent=dday(a.priceDate);$('cf-qty').textContent=nf(a.qty,6);
+$('cf-cost').textContent=thb(a.qty*a.buy,0,0);
+const w=$('cf-wn');
+if(a.exact)w.hidden=true;else{w.hidden=false;
+w.innerHTML='<b>'+i2d(a.date)+' was not a trading day.</b> The close of the last session before it, <b>'+dday(a.priceDate)+'</b>, prices this purchase. Cancel to change the date or the amount.'}
+$('cf-yes').disabled=false;$('cf').classList.add('on');$('cf-yes').focus()}
+const cfShut=()=>$('cf').classList.remove('on');
+$('cf-no').onclick=()=>{cfShut();AV=null;amsg('Cancelled - nothing was saved','ok')};
+$('cf').onclick=e=>{if(e.target.id=='cf')$('cf-no').click()};
+document.addEventListener('keydown',e=>{if(e.key=='Escape'&&$('cf').classList.contains('on'))$('cf-no').click()});
+$('cf-yes').onclick=async()=>{const a=AV;if(!a)return;$('cf-yes').disabled=true;
+try{await api('/api/positions',{symbol:a.sym,date:a.date,qty:a.qty,buy:a.buy});
+cfShut();AV=null;toast('Position added');amsg(a.sym+' '+nf(a.qty,6)+' at '+nf(a.buy,2)+' added','ok');
+$('a-thb').value=$('a-qty').value=$('a-buy').value='';await ldPos()}
+catch(e){cfShut();AV=null;amsg(e.message,'er')}};
 $('af').onsubmit=async ev=>{ev.preventDefault();
 const m=$('a-msg'),go=$('a-go');m.className='er';m.textContent='';
 const sym=$('a-sym').value.trim().toUpperCase(),date=d2i($('a-date').value.trim()),thbv=$('a-thb').value,q=$('a-qty').value,bp=$('a-buy').value;
@@ -439,13 +486,17 @@ if(!date){$('a-date').classList.add('bad');return m.textContent='Enter the purch
 $('a-date').classList.remove('bad');
 if(date>todayISO())return m.textContent='Date is in the future';
 let b={symbol:sym,date};
-if(q||bp){if(!(q>0&&bp>0))return m.textContent='Quantity and buy price must both be positive numbers';b.qty=+q;b.buy=+bp}
-else{if(!(thbv>0))return m.textContent='Enter a THB amount greater than 0';b.thb=+thbv}
-go.disabled=true;m.className='g';m.textContent='Adding...';
+// A THB amount is never booked on faith: the close is looked up first and put in front of the user.
+if(q||bp){if(!(q>0&&bp>0))return m.textContent=PE;b.qty=+q;b.buy=+bp}
+else{if(!(thbv>0))return m.textContent='Enter a THB amount greater than 0';b.thb=+thbv;b.preview=1}
+go.disabled=true;m.className='g';m.textContent='Looking up the closing price...';
 try{let r=await api('/api/positions',b);
-if(r.state=='pending'){m.textContent='Looking up closing price...';
-for(let k=0;k<45;k++){await sl(1000);while(document.hidden)await sl(1000);const j=await api('/api/positions/job');if(j.state=='error')throw new Error(j.error||'Lookup failed');if(j.state=='ok'||(j.state=='idle'&&k>2))break;if(k==44)throw new Error('Timed out waiting for the device')}}
-m.className='ok';m.textContent='Position added';toast('Position added');$('a-thb').value=$('a-qty').value=$('a-buy').value='';await ldPos()}
+if(r.state=='pending'){let j=null;
+for(let k=0;k<45;k++){await sl(1000);while(document.hidden)await sl(1000);const x=await api('/api/positions/job');if(x.state=='error')throw new Error(x.error||'Lookup failed');if(x.state=='ok'){j=x;break}if(x.state=='idle'&&k>2)throw new Error('No close price came back');if(k==44)throw new Error('Timed out waiting for the device')}
+if(b.preview){if(!j||!isFinite(j.buy))throw new Error('No close price came back');
+AV={sym,date,thb:+thbv,buy:+j.buy,qty:+j.qty,priceDate:j.priceDate||date,exact:j.exact!==false};
+amsg('Check the dialog \u2014 nothing has been saved yet','ok');go.disabled=false;cfOpen();return}}
+m.className='ok';m.textContent='Position added';toast('Position added');$('a-qty').value=$('a-buy').value='';await ldPos()}
 catch(e){m.className='er';m.textContent=e.message}
 go.disabled=false};
 /* ---- sales: preview -> confirm -> commit, history, undo, CSV ---- */

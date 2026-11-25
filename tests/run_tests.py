@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Builds and runs the host unit tests (needs a C++ compiler: g++/clang++, or `pip install ziglang`)."""
-import os, shutil, subprocess, sys
+import os
+import shutil, subprocess, sys
 here = os.path.dirname(os.path.abspath(__file__))
 src = os.path.join(here, "..", "src")
 cc = shutil.which("g++") or shutil.which("clang++")
@@ -20,4 +21,16 @@ for name, extra in suites:
     subprocess.check_call(cmd + ["-std=c++17", "-O1", "-g", "-Wall", "-Wextra", "-fsanitize=undefined",
                                  "-o", exe] + files)
     rc |= subprocess.call([exe, os.path.join(here, "fixtures")])
+
+# node-driven checks: they parse the real dashboard exactly the way the browser does and drive the
+# real add-position code in a fake DOM. Skipped (with a note) if node is not installed.
+node = shutil.which("node")
+for js in ("add_flow_check.js",):
+    p2 = os.path.join(here, js)
+    if not os.path.exists(p2):
+        continue
+    if node:
+        rc |= subprocess.call([node, p2])
+    else:
+        print("note: node not on PATH - skipped", js)
 sys.exit(rc)
