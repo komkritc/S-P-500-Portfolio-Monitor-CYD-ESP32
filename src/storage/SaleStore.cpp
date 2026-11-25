@@ -9,6 +9,7 @@
 #include <memory>
 #include <new>
 #include "../finance/SaleEngine.h"
+#include "../core/JsonWriter.h"
 
 namespace storage {
 
@@ -602,6 +603,93 @@ bool ledgerBoot(AppState &a) {
                   (unsigned)rr.failed, (unsigned)st2.badLines, (int)plan.truncateTail, (int)plan.appendPending);
   }
   return fsOk && rr.failed == 0;
+}
+
+// ---------------------------------------------------------------- lot inspector
+namespace {
+constexpr uint8_t LOT_REFS = 12;   // most recent ledger references kept per lot
+
+struct LotRef {
+  uint32_t seq;
+  char     id[16], date[11];
+  uint8_t  type;                   // REC_SALE | REC_REVERSAL
+  double   take, before, after;    // take = before - after (negative on a reversal)
+  double   real;                   // sale-level realised (sale records only), NaN on reversals
+};
+
+struct LotAgg {
+  uint16_t id;
+  uint16_t nSales;                 // sale records that touched this lot (reversals not counted)
+  double   take;                   // net qty moved: sale + its reversal cancel exactly
+  uint16_t nKeep;
+  LotRef   keep[LOT_REFS];         // oldest first; older entries are dropped past the cap
+};
+
+// File-scope scratch: one web request is served at a time (no concurrency on this firmware).
+static LotAgg  g_la[MAX_POSITIONS];
+static uint8_t g_laN;
+
+static void lotRecFn(void *ctx, const SaleRecord &r, uint16_t /*index*/) {
+  const char *sym = static_cast<const char *>(ctx);
+  if (strcmp(r.symbol, sym) != 0) return;
+  for (uint8_t i = 0; i < g_laN; i++) {
+    const LotAlloc *al = sale::lotAllocOf(r, g_la[i].id);
+    if (!al) continue;
+    LotAgg &L = g_la[i];
+    L.take += al->before - al->after;                 // +sale, -reversal -> net of undone trades
+    if (r.type == REC_SALE) L.nSales++;
+    // scan visits records in seq order; keep the newest LOT_REFS by evicting the oldest.
+    uint16_t p;
+    if (L.nKeep < LOT_REFS) p = L.nKeep++;
+    else { memmove(&L.keep[0], &L.keep[1], sizeof(LotRef) * (LOT_REFS - 1)); p = LOT_REFS - 1; }
+    LotRef &e = L.keep[p];
+    e.seq = r.seq;
+    memcpy(e.id, r.id, sizeof e.id);
+    memcpy(e.date, r.date, sizeof e.date);
+    e.type   = r.type;
+    e.take   = al->before - al->after;
+    e.before = al->before;
+    e.after  = al->after;
+    e.real   = (r.type == REC_SALE) ? r.realised : NAN;
+  }
+}
+}  // namespace
+
+bool lotsJson(const AppState &a, const char *symbol, JsonWriter &w, char *err, size_t errN) {
+  g_laN = 0;
+  for (uint8_t i = 0; i < a.posCount && g_laN < MAX_POSITIONS; i++) {
+    const Position &p = a.positions[i];
+    if (strcmp(p.symbol, symbol) != 0) continue;
+    LotAgg &L = g_la[g_laN++];
+    L.id = p.id ? p.id : (uint16_t)(i + 1);   // legacy rows get ids on load; mirror the same fallback
+    L.nSales = 0; L.take = 0.0; L.nKeep = 0;
+  }
+
+  sale::LineSrc src = makeSrc();
+  sale::ScanStats st;
+  sale::scan(src, lotRecFn, (void *)symbol, st);
+  if (!st.opened && LittleFS.exists(LEDGER_PATH) && err && errN)
+    snprintf(err, errN, "ledger present but unreadable");
+
+  w.beginObj().kBool("ok", true).kStr("symbol", symbol).kBool("ledger", st.opened)
+   .kInt("badLines", st.badLines)
+   .key("lots").beginArr();
+  for (uint8_t i = 0; i < g_laN; i++) {
+    const LotAgg &L = g_la[i];
+    w.beginObj().kInt("id", L.id).kInt("nSales", L.nSales).kNum("take", L.take, 8)
+     .kBool("capped", L.nSales > LOT_REFS)
+     .key("refs").beginArr();
+    for (uint16_t j = 0; j < L.nKeep; j++) {          // newest last, matching ledger order
+      const LotRef &e = L.keep[j];
+      w.beginObj().kInt("seq", (int64_t)e.seq).kStr("id", e.id).kStr("date", e.date)
+       .kStr("type", e.type == REC_REVERSAL ? "reversal" : "sale")
+       .kNum("take", e.take, 8).kNum("before", e.before, 8).kNum("after", e.after, 8)
+       .kNum("realised", e.real, 4).endObj();
+    }
+    w.endArr().endObj();
+  }
+  w.endArr().endObj();
+  return true;
 }
 
 }  // namespace storage

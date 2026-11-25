@@ -213,6 +213,34 @@ static void testToken() {
 }
 
 // ---------------------------------------------------------------- records
+// ---------------------------------------------------------------- lot references
+static void testLotRefs() {
+  Position pos[MAX_POSITIONS]; uint8_t n; PortfolioMeta m;
+  twoLots(pos, n, m);
+  m.nextTxn = 1;
+  const uint32_t now = utcMidnight(2026, 11, 20);
+  SaleRequest r = R("^GSPC", "2026-11-19");
+  r.qty = 12; r.price = 6200; r.fee = 10; r.refPrice = 6180;
+  SalePreview pv;
+  CHECK(sale::preview(pos, n, m, r, now, pv) && pv.ok);
+  SaleRecord rec;
+  sale::makeRecord(pv, 1, 1700000000, m, rec);
+  CHECK(rec.nAlloc == 2);                       // FIFO spans both lots
+
+  const LotAlloc *a0 = sale::lotAllocOf(rec, rec.alloc[0].lot);
+  const LotAlloc *a1 = sale::lotAllocOf(rec, rec.alloc[1].lot);
+  CHECK(a0 && a0 == &rec.alloc[0] && a1 && a1 == &rec.alloc[1]);
+  CHECK(sale::lotAllocOf(rec, 9999) == nullptr);
+
+  SaleRecord empty = rec;
+  empty.nAlloc = 0;
+  CHECK(sale::lotAllocOf(empty, rec.alloc[0].lot) == nullptr);
+
+  // the take of a sale is (before - after) > 0; both lots together move exactly `qty`
+  CHECK(a0->before - a0->after > 0 && a1->before - a1->after > 0);
+  CHECK_NEAR((a0->before - a0->after) + (a1->before - a1->after), rec.qty, 1e-9);
+}
+
 static void testRecords() {
   Position pos[MAX_POSITIONS]; uint8_t n; PortfolioMeta m;
   twoLots(pos, n, m);
@@ -684,6 +712,7 @@ int main(int, char **) {
   testPreview();
   testToken();
   testRecords();
+  testLotRefs();
   testApplyAndReverse();
   testSummary();
   testScan();

@@ -10,7 +10,7 @@ Conventions
 * `stale: true` = last refresh failed or is older than 3x the refresh interval (cached value is still shown).
 * Errors: `{"ok":false,"error":"text"}` with 4xx/5xx. Unknown `/api/*` -> 404 same shape.
 * `GET /api/*` carry `Access-Control-Allow-Origin: *`. Mutating calls are same-origin only.
-* If an admin password is set (Settings), every `POST` and `/update` need HTTP Basic auth (`admin:<password>`), and so do all sale endpoints (`/api/realised`, `/api/sales*`) because they expose money; a 401 carries `WWW-Authenticate: Basic`.
+* If an admin password is set (Settings), every `POST` and `/update` need HTTP Basic auth (`admin:<password>`), and so do all sale endpoints (`/api/realised`, `/api/sales*`, `/api/lots`) because they expose money; a 401 carries `WWW-Authenticate: Basic`.
 * Passwords (Wi-Fi, admin) are write-only. They are never returned.
 
 ## Read endpoints
@@ -50,7 +50,7 @@ Conventions
 ```
 `quote`: `fresh` | `stale` | `missing` | `invalid` (bad qty/buy -> excluded from totals). `price`, `nav`, `pl`, `returnPct` are `null` if `missing`/`invalid`. `quoteEpoch` is the market time of the price.
 
-`id` is the **lot id** (unique, never reused) and `oqty` the quantity at purchase; `qty` is what is still open. A sale reduces `qty` and disappears from this list once the lot is fully sold (its history stays in `/api/sales`).
+`id` is the **lot id** (unique, never reused) and `oqty` the quantity at purchase; `qty` is what is still open. A sale reduces `qty` and disappears from this list once the lot is fully sold (its history stays in `/api/sales`; the per-lot view is `/api/lots`).
 
 ### GET /api/market
 ```json
@@ -127,7 +127,19 @@ One page of the ledger, newest first (admin auth). `limit` is clamped to 1..8.
    "priceSource":"yahoo","fee":10.0000,"gross":62000.000000,"net":61990.000000,
    "cost":63821.000000,"realised":-1831.000000}]}
 ```
-`type`: `0` sale, `1` reversal (undo). `status`: `valid` | `reversed` (this sale was undone) | `reversal`. `refId` is set on reversals (id of the original sale). `priceSource`: `manual` | `yahoo`. Rows never carry their lot allocations; use the preview of a new sale or the LCD for those.
+`type`: `0` sale, `1` reversal (undo). `status`: `valid` | `reversed` (this sale was undone) | `reversal`. `refId` is set on reversals (id of the original sale). `priceSource`: `manual` | `yahoo`. Rows never carry their lot allocations; the lot view of the same records is `GET /api/lots` below.
+
+### GET /api/lots?symbol=NVDA
+Per-lot ledger history for one symbol (admin auth, fw 1.3.3+). Read-only: one streaming pass over the ledger, no flash writes.
+```json
+{"ok":true,"symbol":"^GSPC","ledger":true,"badLines":0,
+ "lots":[{"id":1,"nSales":2,"take":20.00000000,"capped":false,
+   "refs":[{"seq":3,"id":"TX-000003","date":"2026-11-18","type":"sale","take":12.00000000,
+            "before":67.41642896,"after":55.41642896,"realised":-1831.0},
+           {"seq":5,"id":"TX-000005","date":"2026-11-20","type":"reversal","take":-12.00000000,
+            "before":55.41642896,"after":67.41642896,"realised":null}]}]}
+```
+Only currently open lots are listed. `take` is the **net** quantity the ledger moved on the lot: a sale's allocation is `before-after` (positive) and its reversal re-runs the lot with the negated amount, so an undone sale cancels itself out automatically. `nSales` counts sale records only (reversals not counted). Up to the **12 most recent** ledger references per lot are kept in `refs`, oldest first; `capped:true` means `nSales` exceeds what is shown. `realised` is the sale-level figure and is deliberately not split across lots - a sale spanning several lots has exactly one realised amount (`null` on reversals). `ledger:false` means the ledger file could not be opened: the lot list is still correct but every history field reads as empty (never guess). `badLines` counts unparseable ledger lines.
 
 ### GET /api/sales/export[?symbol=^GSPC]
 `text/csv` attachment (`sells.csv`), streamed. Header:
@@ -210,4 +222,4 @@ Guarantees
 
 ## Web pages
 
-`GET /` serves the single-page dashboard (gzip). Hash routes: `#portfolio` (default), `#market`, `#details`, `#sales`, `#wifi`, `#settings`, `#system`. In AP mode any unknown host/URL is redirected to `http://192.168.4.1/#wifi` (captive portal).
+`GET /` serves the single-page dashboard (gzip). Hash routes: `#portfolio` (default), `#market`, `#holdings`, `#sales`, `#wifi`, `#settings`, `#system`. In AP mode any unknown host/URL is redirected to `http://192.168.4.1/#wifi` (captive portal).

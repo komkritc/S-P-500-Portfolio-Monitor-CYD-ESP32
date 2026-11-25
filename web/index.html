@@ -55,6 +55,10 @@ table{border-collapse:collapse;width:100%;font-size:13px}
 th,td{padding:7px 10px;text-align:left;border-bottom:1px solid var(--line2);white-space:nowrap}
 th{font-size:11px;letter-spacing:.06em;color:var(--muted);text-transform:uppercase;font-weight:600;user-select:none}
 th.s{cursor:pointer}th.s:hover{color:var(--acc)}
+tr.lotrow>td{background:var(--raised);padding:10px 14px 12px}
+.lotref{font-size:12.5px;color:var(--soft);margin-top:5px}
+.lotref b{color:var(--fg)}
+table.lt{margin-top:8px}table.lt th,table.lt td{padding:4px 10px;border-bottom:1px solid var(--line2)}
 .n{text-align:right}
 tfoot td,tr.tot td{font-weight:700;border-top:1px solid var(--bd2);border-bottom:0}
 .rg{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
@@ -129,7 +133,7 @@ dl{grid-template-columns:1fr;gap:0}dd{margin-bottom:6px}
 <header><div class="hd">
 <div class="hr"><h1>S&amp;P 500 PORTFOLIO MONITOR</h1><span class="ra"><span id="pill" class="e">connecting...</span><button class="btn" id="th" type="button"></button></span></div>
 <nav id="nav">
-<a href="#portfolio">Portfolio</a><a href="#market">Market</a><a href="#details">Details</a><a href="#sales">Sales</a><a href="#wifi">Wi-Fi</a><a href="#settings">Settings</a><a href="#system">System</a>
+<a href="#portfolio">Portfolio</a><a href="#market">Market</a><a href="#holdings">Holdings</a><a href="#sales">Sales</a><a href="#wifi">Wi-Fi</a><a href="#settings">Settings</a><a href="#system">System</a>
 </nav></div></header>
 <main>
 <div id="bn"></div>
@@ -158,7 +162,7 @@ dl{grid-template-columns:1fr;gap:0}dd{margin-bottom:6px}
 </div>
 </section>
 
-<section id="details" class="tab">
+<section id="holdings" class="tab">
 <div class="panel"><h2>Holdings</h2><div class="tw"><table id="dt"></table></div></div>
 <div class="panel"><h2>Add position</h2>
 <form id="af" autocomplete="off">
@@ -280,7 +284,7 @@ const todayISO=()=>new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISO
 const i2d=s=>/^\d{4}-\d\d-\d\d$/.test(s||'')?s.slice(8)+'/'+s.slice(5,7)+'/'+s.slice(0,4):(s||'');
 function d2i(s){const m=/^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s||'');if(!m)return null;const d=+m[1],mo=+m[2],y=+m[3],t=new Date(Date.UTC(y,mo-1,d));
 if(y<1970||t.getUTCFullYear()!=y||t.getUTCMonth()!=mo-1||t.getUTCDate()!=d)return null;return m[3]+'-'+m[2]+'-'+m[1]}
-const NA='N/A',TABS=['portfolio','market','details','sales','wifi','settings','system'];
+const NA='N/A',TABS=['portfolio','market','holdings','sales','wifi','settings','system'];
 const nf=(x,d)=>x==null||!isFinite(x)?NA:Number(x).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
 const thb=(x,s)=>x==null?NA:(x<0?'-':s&&x>0?'+':'')+'THB '+nf(Math.abs(x),2);
 // invested capital is whole baht: "THB 10,600,000" reads better than
@@ -319,7 +323,7 @@ return j}
 let lr={},hold=0,tb=0;
 const J={status:[ldStatus,10000],portfolio:[()=>api('/api/portfolio').then(rPf).then(()=>api('/api/realised')).then(rYr),15000],market:[ldMarket,15000],positions:[ldPos,15000],
 sales:[ldSales,15000],chart:[()=>ldChart(),20000],wifi:[()=>wbusy?0:api('/api/wifi/status').then(rWifi),5000]};
-const TJ={portfolio:['portfolio','market','positions'],market:['market','chart'],details:['positions'],sales:['positions','sales'],wifi:['wifi'],settings:[],system:[]};
+const TJ={portfolio:['portfolio','market','positions'],market:['market','chart'],holdings:['positions'],sales:['positions','sales'],wifi:['wifi'],settings:[],system:[]};
 async function tick(){
 if(tb||hold||document.hidden)return;tb=1;
 try{for(const n of ['status'].concat(TJ[cur])){const j=J[n];if(Date.now()-(lr[n]||0)>=j[1]){lr[n]=Date.now();try{await j[0]()}catch(e){if(e.st&&e.st!=401)banner(e.message)}}if(hold||document.hidden)break}}
@@ -374,20 +378,50 @@ const PC=[
 {k:'quote',l:'Quote',f:r=>r.quote,b:1}];
 const CK=['symbol','date','cost','nav','pl','returnPct','quote'];
 let DP=null,sort={k:'i',d:1};
+async function lotToggle(tr,r,span){
+const bd=tr.parentElement,open=tr.nextElementSibling&&tr.nextElementSibling.classList.contains('lotrow');
+if(bd)bd.querySelectorAll('tr.lotrow').forEach(x=>x.remove());
+if(open)return;
+const dr=E('tr','lotrow'),td=E('td');td.colSpan=span;dr.append(td);tr.after(dr);
+td.append(E('span','g','Loading lot history...'));
+let d;
+try{d=await api('/api/lots?symbol='+encodeURIComponent(r.symbol))}catch(e){td.replaceChildren(E('div','lotref neg','Lot history unavailable: '+e.message));return}
+td.replaceChildren();
+const L=(d.lots||[]).find(x=>x.id===r.id);
+const h=E('div','lotref');
+h.append(E('b',null,'Lot #'+(r.id==null?'-':r.id)));
+h.append(document.createTextNode(' · bought '+i2d(r.date)+' at '+nf(r.buy,4)));
+h.append(document.createTextNode(' · original '+nf(r.oqty,4)+' → open '+nf(r.qty,4)));
+if(L)h.append(document.createTextNode(' · net sold from this lot '+nf(L.take,4)+' across '+L.nSales+' sale record'+(L.nSales==1?'':'s')));
+td.append(h);
+if(d.ledger===false)td.append(E('div','lotref neg','Ledger file could not be read — history is incomplete.'));
+if(!L)td.append(E('div','lotref g','No ledger record references this lot.'));
+else if(!L.refs.length)td.append(E('div','lotref g','No sale has touched this lot.'));
+else{const t=E('table','lt'),hr=E('tr');
+['Date','Tx','Type','Qty from this lot','Open before','Open after','Sale realised (whole sale)'].forEach(x=>hr.append(E('th','hm',x)));
+const ta=E('thead');ta.append(hr);t.append(ta);
+const tb2=E('tbody');
+L.refs.slice().reverse().forEach(f=>{const tr2=E('tr');
+tr2.append(E('td','hm',i2d(f.date)),E('td','hm',f.id),E('td',null,f.type),E('td','n',nf(f.take,4)),E('td','n',nf(f.before,4)),E('td','n',nf(f.after,4)),E('td','n',f.realised==null?NA:thb(f.realised,1)));
+tb2.append(tr2)});
+t.append(tb2);td.append(t);
+if(L.nSales>L.refs.length)td.append(E('div','lotref g','Showing the newest '+L.refs.length+' of '+L.nSales+' sale records touching this lot.'))}
+}
 function rpos(tb,keys,full){
 tb.replaceChildren();if(!DP)return;
 const cols=PC.filter(c=>keys.includes(c.k)),rows=(DP.positions||[]).slice();
 if(full)rows.sort((a,b)=>{let x=a[sort.k],y=b[sort.k];if(x==null)return y==null?0:1;if(y==null)return -1;return(typeof x=='string'?x.localeCompare(y):x-y)*sort.d});
 const th=E('tr');
 cols.forEach(c=>{const h=E('th',(c.n?'n ':'')+(c.h?'hm ':'')+(full?'s':''),c.l+(full&&sort.k==c.k?(sort.d>0?' \u25b2':' \u25bc'):''));
-if(full)h.onclick=()=>{sort=sort.k==c.k?{k:c.k,d:-sort.d}:{k:c.k,d:1};rpos(tb,keys,full)};th.append(h)});
+if(full){h.title='Sort by '+c.l;h.onclick=()=>{sort=sort.k==c.k?{k:c.k,d:-sort.d}:{k:c.k,d:1};rpos(tb,keys,full)}};th.append(h)});
 if(full)th.append(E('th'));
 const hd=E('thead');hd.append(th);tb.append(hd);
 const bd=E('tbody');tb.append(bd);
 if(!rows.length){const r=E('tr'),t=E('td','g','No positions');t.colSpan=cols.length+(full?1:0);r.append(t);bd.append(r)}
 rows.forEach(r=>{const tr=E('tr');
 cols.forEach(c=>{const td=E('td',(c.n?'n ':'')+(c.h?'hm':''));if(c.b)td.append(E('span','b b-'+r.quote,String(r.quote).toUpperCase()));else{td.textContent=c.f(r);if(c.s){const v=c.s(r);if(v>0)td.classList.add('pos');else if(v<0)td.classList.add('neg')}}tr.append(td)});
-if(full){const td=E('td','n'),b=E('button','btn x','\u00d7');b.title='Delete';b.onclick=()=>delPos(r,b);td.append(b);tr.append(td)}
+if(full){const td=E('td','n'),b=E('button','btn x','\u00d7');b.title='Delete';b.onclick=e=>{e.stopPropagation();delPos(r,b)};td.append(b);tr.append(td);
+tr.title='Show this lot\u2019s ledger history';tr.onclick=()=>lotToggle(tr,r,cols.length+1)}
 bd.append(tr)});
 if(full&&DP.summary){const s=DP.summary,tr=E('tr','tot');
 cols.forEach(c=>{const td=E('td',c.n?'n':'');const m={symbol:'TOTAL',cost:thb0(s.invested),nav:thb(s.nav),pl:thb(s.pl,1),returnPct:pc(s.returnPct)};td.textContent=m[c.k]||'';
@@ -732,7 +766,7 @@ x.onload=()=>{if(x.status==200){m.className='ok';m.textContent=x.responseText||'
 else{hold=0;$('o-go').disabled=false;m.className='er';m.textContent=x.status==401?'Authorization required: sign in as "admin".':(x.responseText||'Upload failed (HTTP '+x.status+')')}};
 x.send(fd)};
 /* ---- routing ---- */
-const EN={market:ldMarketTab,settings:ldSet,wifi:()=>scan(0),details:()=>{},sales:()=>{fillLots();ldSales()}};
+const EN={market:ldMarketTab,settings:ldSet,wifi:()=>scan(0),holdings:()=>{},sales:()=>{fillLots();ldSales()}};
 function route(){
 let t=location.hash.slice(1);if(!TABS.includes(t))t='portfolio';cur=t;lr={};
 TABS.forEach(n=>$(n).classList.toggle('on',n==t));

@@ -13,6 +13,7 @@
 #pragma once
 #include <Arduino.h>
 #include "../core/AppState.h"
+#include "../core/JsonWriter.h"
 
 namespace storage {
 
@@ -47,6 +48,13 @@ bool salePage(const AppState &a, const char *symbol, uint16_t offset, uint16_t l
 
 // true when a reversal of `seq` already exists.
 bool saleReversed(const AppState &a, uint32_t seq, bool &out);
+
+// Lot inspector (read-only, never writes flash). Streams one JSON object listing every open lot
+// of `symbol` with its net sold quantity, how many sale records touched it, and up to 12 most
+// recent ledger references (seq, TX id, date, type, qty moved, before -> after, sale-level
+// realised). `ledger:false` means the ledger file could not be opened: the lot list is still
+// correct but every history field reads as if nothing had been sold.
+bool lotsJson(const AppState &a, const char *symbol, JsonWriter &w, char *err, size_t errN);
 
 // Streams matching records as CSV (header + one line per record) through `sink`.
 typedef void (*CsvSink)(void *ctx, const char *data, size_t len);

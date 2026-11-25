@@ -42,6 +42,11 @@ void scan(LineSrc &src, RecordFn fn, void *ctx, ScanStats &st);
 
 // ---------------------------------------------------------------- records
 bool   parseRecord(const char *line, size_t len, SaleRecord &out);
+
+// The allocation of `r` that touches lot `lotId`, or nullptr. The quantity that record moved on
+// this lot is (before - after): positive for a sale, negative for its reversal, so summing this
+// over the whole ledger nets out reversed trades without any extra bookkeeping.
+const LotAlloc *lotAllocOf(const SaleRecord &r, uint16_t lotId);
 void   writeRecord(JsonWriter &w, const SaleRecord &r);                 // one object, no newline
 size_t recordLine(const SaleRecord &r, char *buf, size_t cap);          // JSON + NUL, 0 = too small
 size_t csvLineStr(const SaleRecord &r, bool reversed, char *out, size_t cap);  // one CSV export row (no scan); returns bytes written

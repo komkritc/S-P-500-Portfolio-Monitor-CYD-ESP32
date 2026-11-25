@@ -5,7 +5,7 @@ import os
 import re
 import sys
 
-LIMIT = 22528
+LIMIT = 24576  # gz dashboard budget (send_P streams from flash; raising it costs flash only)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, "web", "index.html")
 DST = os.path.join(ROOT, "web", "web_assets.h")

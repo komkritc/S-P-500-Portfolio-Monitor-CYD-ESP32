@@ -351,6 +351,18 @@ static void apiSales() {
   w.endArr().endObj();
 }
 
+// Lot inspector (read-only): every open lot of `symbol` plus its most recent ledger references.
+static void apiLots() {
+  if (!requireAuth()) return;
+  char symbol[SYMBOL_LEN];
+  if (!server.hasArg("symbol") || !normalizeSymbol(server.arg("symbol").c_str(), symbol, sizeof symbol)) {
+    sendErr(400, "symbol required"); return;
+  }
+  Reply r(200); JsonWriter &w = r.w;
+  char err[64] = "";
+  storage::lotsJson(g_app, symbol, w, err, sizeof err);   // streams; reports ledger:false when unreadable
+}
+
 static void apiSalesExport() {
   if (!requireAuth()) return;
   char symbol[SYMBOL_LEN] = "";
@@ -682,6 +694,7 @@ void begin() {
   server.on("/api/positions/job", HTTP_GET, apiJobGet);
   server.on("/api/realised", HTTP_GET, apiRealised);
   server.on("/api/sales", HTTP_GET, apiSales);
+  server.on("/api/lots", HTTP_GET, apiLots);
   server.on("/api/sales/export", HTTP_GET, apiSalesExport);
   server.on("/api/sales/job", HTTP_GET, apiSaleJob);
   server.on("/api/certs", HTTP_GET, apiCerts);

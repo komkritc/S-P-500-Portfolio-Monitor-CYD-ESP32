@@ -666,6 +666,12 @@ RecoverResult recover(Position *pos, uint8_t &n, PortfolioMeta &m, RealisedSumma
   return res;
 }
 
+const LotAlloc *lotAllocOf(const SaleRecord &r, uint16_t lotId) {
+  for (uint8_t i = 0; i < r.nAlloc && i < MAX_LOT_ALLOCS; i++)
+    if (r.alloc[i].lot == lotId) return &r.alloc[i];
+  return nullptr;
+}
+
 uint8_t statusOf(const SaleRecord &r, bool reversed) {
   if (r.type == REC_REVERSAL) return REC_REVERSAL;
   return reversed ? (uint8_t)SALE_ST_REVERSED : (uint8_t)REC_SALE;

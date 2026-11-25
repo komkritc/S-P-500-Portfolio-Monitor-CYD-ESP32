@@ -158,9 +158,12 @@ boots with it blank and stays offline until Wi-Fi is supplied by the portal inst
 
 ## Web dashboard
 
-Portfolio / Market / Details / Sales / Wi-Fi / Settings / System tabs. Add a position by
+Portfolio / Market / Holdings / Sales / Wi-Fi / Settings / System tabs. Add a position by
 symbol + date + THB amount (the device looks up that day's close, never a later bar) or by
-quantity and price. Dates in the UI are `dd/mm/yyyy`; the API speaks ISO.
+quantity and price. The Holdings table sorts by any column (click a header) and clicking a row
+expands that purchase lot's ledger history - every sale record that touched the lot, how much it
+took, and the open quantity before/after (net sold cancels automatically when a sale is reversed).
+Dates in the UI are `dd/mm/yyyy`; the API speaks ISO.
 Settings: refresh intervals, page-rotate seconds, LCD page and chart-range masks, default
 range, time zone, LCD brightness, hostname, admin password.
 
