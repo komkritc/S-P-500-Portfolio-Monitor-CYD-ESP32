@@ -381,8 +381,8 @@ async function ldMarket(){const m=await api('/api/market');MK=m;rQ('ix',m);rQ('m
 /* ---- portfolio ---- */
 function rPf(d){
 const s=d.summary||{};
-set('c-nav',thb(s.nav));set('c-pl',thb(s.pl,1),s.pl||0);set('c-ret',pc(s.returnPct),s.returnPct||0);set('c-inv',thb0(s.invested));
-set('c-rpl',thb(s.realisedPl,1),s.realisedPl||0);set('c-lpl',thb(s.lifetimePl,1),s.lifetimePl||0);
+set('c-nav',thb(s.nav,0,0));set('c-pl',thb(s.pl,1,0),s.pl||0);set('c-ret',pc(s.returnPct),s.returnPct||0);set('c-inv',thb(s.invested,0,0));
+set('c-rpl',thb(s.realisedPl,1,0),s.realisedPl||0);set('c-lpl',thb(s.lifetimePl,1,0),s.lifetimePl||0);
 set('c-rpl-s',s.realisedPl==null?'ledger not read yet':'all time');
 set('c-upd','('+lt(d.updated)+')');stB('pf-stale',s.stale,d.updated);
 const i=$('pf-inc');i.hidden=s.complete!==false;
@@ -506,7 +506,7 @@ const r=await api('/api/realised');rR(r)}
 /* this-year realised P/L: the calendar year in the display time zone (same rule as the LCD); a year with no sale is a real 0 */
 function curYear(){const d=new Date(now()*1000);try{if(fm.dk){const p=fm.dk.formatToParts(d).find(x=>x.type=='year');if(p)return+p.value}}catch(e){}return d.getUTCFullYear()}
 function rYr(r){const cy=curYear(),ok=r&&r.valid,e=ok&&(r.years||[]).find(y=>y.year==cy),v=ok?(e?e.pl:0):null;
-for(const id of['c-rpl-y','r-all-y']){const el=$(id);if(!el)continue;el.textContent='this year ('+cy+'): '+(ok?thb(v,1):NA);el.classList.toggle('pos',ok&&v>0);el.classList.toggle('neg',ok&&v<0)}}
+for(const id of['c-rpl-y','r-all-y']){const el=$(id);if(!el)continue;el.textContent='this year ('+cy+'): '+(ok?thb(v,1,id=='c-rpl-y'?0:1):NA);el.classList.toggle('pos',ok&&v>0);el.classList.toggle('neg',ok&&v<0)}}
 function rR(r){rYr(r);
 set('r-all',r.valid?thb(r.pl,1):NA,r.pl||0);
 set('r-all-s',r.valid?(r.count+' sale'+(r.count==1?'':'s')+(r.reversed?' \u00b7 '+r.reversed+' reversed':'')):'ledger not read yet')}
