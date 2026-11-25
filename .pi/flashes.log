@@ -8,3 +8,9 @@
            UI::begin() and live from POST /api/settings (restart:false).
            Verified live: default 100, limits [5,100] in API, POST 30 applied, 0 rejected
            ("backlight must be 5..100"), 40 survived a reboot, restored to 100.
+
+2026-11-25  SmallTV (ESP8266) fw 1.1.6  parent-repo commit 3b5759a  method: pio run -e smalltv -t upload --upload-port sp500.local (espota :8266), 11 s, Result: OK
+           same LCD-dim feature as the CYD, active-low PWM on GPIO 5, default 90%.
+           Live-verified: default 90, limits [5,100], POST 35 applied with restart:false, 0 and 101 rejected,
+           35 survived a reboot (boot applies it), restored to 90. Served /index.html has the slider.
+           Also committed the pending v1.1.3 release state first (f589881: zone-preset UI, docs, version bump) - it was uncommitted work that was already running on the device.

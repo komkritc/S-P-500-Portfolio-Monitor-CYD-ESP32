@@ -8,7 +8,7 @@ and live requests to the device. Do not trust memory over them.
 | Host | IP | Board | Repo |
 |---|---|---|---|
 | `sp500-32.local` | 192.168.1.161 | ESP32 CYD (this repo) | `ESP32-CYD-SP500` |
-| `sp500.local` | 192.168.1.187 | ESP8266 SmallTV | sibling repo, different firmware |
+| `sp500.local` | 192.168.1.187 | ESP8266 SmallTV (GeekMagic, ST7789 240x240) | `SP500_SmallTV/` in the **parent** repo `/data/Projects/sp500` (see below) |
 
 Before flashing, confirm `fw`, `chip.id` (CYD = `F3AF48`) and uptime in `/api/status`.
 The CYD runs Arduino/ESP32 core 2.0.17, ESP8266 core 3.1.0 belongs to the other board.
@@ -52,6 +52,35 @@ name-resolves - address the CYD directly by 192.168.1.161 if mDNS fails.
 2. **Backlight / anything judged by brightness on the panel** (`UI::setBacklight`).
    The API confirms the number and the duty maths, only the eye judges the result.
    Report these as needing physical verification; never claim them as verified.
+
+## The two repositories (verified 2026-11-25)
+
+| Directory | Git | Holds |
+|---|---|---|
+| `/data/Projects/sp500` | `.git` at that root, branch `main` | **both** project folders: `SP500_SmallTV/**` (live) and an old copy of `ESP32-CYD-SP500/**` from before the split |
+| `/data/Projects/sp500/ESP32-CYD-SP500` | its own `.git` (nested) | the CYD firmware only |
+
+The CYD folder's own repo wins inside it, so `git status` there is clean while the same
+files show as modified from the parent. **Never `git add -A` in the parent** - it would
+commit the stale CYD copy. Commit there with explicit pathspecs (`git add SP500_SmallTV`).
+Branch `smalltv-only` / remote `gh/main` is a history whose root *is* the SmallTV project.
+
+## ESP8266 SmallTV facts (fw 1.1.6, verified live on .187)
+
+* Backlight: ST7789 wired **active-low** on GPIO 5 (D1), `analogWrite` with
+  `analogWriteRange(255)` - duty 0 = full on, 255 dark. `lcdBegin()` lights it before
+  anything else boots (a dark screen there means the sketch never got that far), then
+  `setup()` applies the stored level once `settings.json` is readable.
+  Default `90` %, the level this board shipped with; the CYD's default is 100 %.
+* ESP32 CYD is active-**high** LEDC, 5 kHz / 10 bit. Both use the same perceptual curve
+  (slider squared onto duty); only the polarity and the range differ.
+* OTA: `pio run -e smalltv -t upload --upload-port sp500.local` (ArduinoOTA on **8266**)
+  took 11 s for 715 KB. An HTTP `POST /update` (multipart field `firmware`) also exists.
+  The updater needs `ESP.getMaxFreeBlockSize() >= 6000`; this device runs with 10-20 KB
+  blocks, so heap matters: no new static buffers, keep JSON parsing on the heap.
+* Firmware numbering is shared across the two boards: 1.1.3 belongs to SmallTV, 1.1.4 and
+  1.1.5 to the CYD, so the SmallTV dim release is **1.1.6**. Never let both devices report
+  the same `fw`.
 
 ## Touch input facts (fw 1.1.4)
 
