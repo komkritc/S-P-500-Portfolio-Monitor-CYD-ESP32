@@ -25,8 +25,37 @@ uint16_t downsampleMinMax(const uint32_t *t, const float *v, uint16_t n, uint32_
   return out;
 }
 
-void chartStore(Chart &c, const uint32_t *t, const float *v, uint16_t n, float base, uint32_t okMs, uint32_t okEpoch) {
-  c.n = downsampleMinMax(t, v, n, c.t, c.v, c.cap);
+uint16_t downsampleOHLC(const uint32_t *t, const float *o, const float *h, const float *l, const float *v,
+                        uint16_t n, uint32_t *outT, float *outO, float *outH, float *outL, float *outV,
+                        uint16_t maxOut) {
+  if (n == 0 || maxOut == 0) return 0;
+  if (n <= maxOut) {
+    for (uint16_t i = 0; i < n; i++) { outT[i] = t[i]; outO[i] = o[i]; outH[i] = h[i]; outL[i] = l[i]; outV[i] = v[i]; }
+    return n;
+  }
+  if (maxOut < 3) {
+    outT[0] = t[0]; outO[0] = o[0]; outH[0] = h[0]; outL[0] = l[0]; outV[0] = v[0];
+    if (maxOut > 1) { outT[1] = t[n - 1]; outO[1] = o[n - 1]; outH[1] = h[n - 1]; outL[1] = l[n - 1]; outV[1] = v[n - 1]; return 2; }
+    return 1;
+  }
+  // First and last bar verbatim; the middle is split into buckets, each merged into one candle.
+  uint16_t out = 0;
+  outT[out] = t[0]; outO[out] = o[0]; outH[out] = h[0]; outL[out] = l[0]; outV[out++] = v[0];
+  const uint16_t mid = n - 2, buckets = maxOut - 2;
+  for (uint16_t b = 0; b < buckets; b++) {
+    uint16_t lo = 1 + (uint32_t)mid * b / buckets, hi = 1 + (uint32_t)mid * (b + 1) / buckets;
+    if (hi <= lo) continue;
+    float hh = h[lo], ll = l[lo];
+    for (uint16_t i = lo + 1; i < hi; i++) { if (h[i] > hh) hh = h[i]; if (l[i] < ll) ll = l[i]; }
+    outT[out] = t[hi - 1]; outO[out] = o[lo]; outH[out] = hh; outL[out] = ll; outV[out++] = v[hi - 1];
+  }
+  outT[out] = t[n - 1]; outO[out] = o[n - 1]; outH[out] = h[n - 1]; outL[out] = l[n - 1]; outV[out++] = v[n - 1];
+  return out;
+}
+
+void chartStore(Chart &c, const uint32_t *t, const float *o, const float *h, const float *l,
+                const float *v, uint16_t n, float base, uint32_t okMs, uint32_t okEpoch) {
+  c.n = downsampleOHLC(t, o, h, l, v, n, c.t, c.o, c.h, c.l, c.v, c.cap);
   c.base = base;
   c.valid = c.n >= 2;
   c.failed = false;

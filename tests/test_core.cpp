@@ -277,9 +277,9 @@ static void testJson() {
   { ev.clear(); JsonStream k; k.begin(collect, nullptr); const char *s = "\xEF\xBB\xBF  {\n \"a\" : 1 \n}\n"; CHECK(k.feed(s, strlen(s)) && k.complete()); }
 }
 
-struct Parsed { YahooParser p; uint32_t ts[STAGE_CAP]; float cl[STAGE_CAP]; bool ok; };
-static void parseFile(Parsed &r, const std::string &body, uint16_t chunk = 97) {
-  r.p.begin(r.ts, r.cl, STAGE_CAP);
+struct Parsed { YahooParser p; uint32_t ts[STAGE_CAP]; float cl[STAGE_CAP]; float oh[STAGE_CAP], hh[STAGE_CAP], lh[STAGE_CAP]; bool ok; };
+static void parseFile(Parsed &r, const std::string &body, uint16_t chunk = 97, bool ohlc = false) {
+  r.p.begin(r.ts, r.cl, ohlc ? r.oh : nullptr, ohlc ? r.hh : nullptr, ohlc ? r.lh : nullptr, STAGE_CAP);
   for (size_t i = 0; i < body.size(); i += chunk) r.p.feed(body.data() + i, std::min<size_t>(chunk, body.size() - i));
   r.ok = r.p.finish();
 }
@@ -302,6 +302,36 @@ static void testYahoo(const char *dir) {
   }
   { Parsed r; parseFile(r, readFile((d + "/c5d.json").c_str())); CHECK(r.ok && r.p.count == 131); CHECK_NEAR(r.p.prevClose, 7175.83, 1e-9); }   // previousClose wins over chartPreviousClose (range start)
   { Parsed r; parseFile(r, readFile((d + "/c1m.json").c_str())); CHECK(r.ok && r.p.count == 23 && r.ts[0] == 1792589400u); }
+  // OHLC mode: every surviving bar carries a consistent candle (Yahoo fixtures include open/high/low)
+  { Parsed r; parseFile(r, readFile((d + "/c1d.json").c_str()), 97, true);
+    CHECK(r.ok && r.p.count == 79);
+    CHECK_NEAR(r.oh[0], 7150.39, 0.01);   // first open = session open scalar
+    for (int i = 0; i < r.p.count; i++) {
+      CHECK(!isnan(r.oh[i]) && !isnan(r.hh[i]) && !isnan(r.lh[i]));
+      CHECK(r.hh[i] >= r.oh[i] - 1e-3 && r.hh[i] >= r.cl[i] - 1e-3);   // high >= body
+      CHECK(r.lh[i] <= r.oh[i] + 1e-3 && r.lh[i] <= r.cl[i] + 1e-3);   // low <= body
+      CHECK(r.lh[i] <= r.hh[i] + 1e-3);
+    } }
+  // OHLC compaction: a row with a null close is dropped whole; a surviving row whose own
+  // open/high/low are missing degrades to a doji at the close (inventing nothing); a surviving
+  // row with a full candle is kept verbatim, and high/low are clamped around the body.
+  { Parsed r; parseFile(r, "{\"chart\":{\"result\":[{\"meta\":{},\"timestamp\":[100,200,300,400],"
+                           "\"indicators\":{\"quote\":[{\"close\":[1.5,null,3.5,5.0],\"open\":[1.2,2,null,4.5],\"high\":[1.6,null,9.9,4.6],\"low\":[1.1,null,null,4.4]}]}}],\"error\":null}}", 97, true);
+    CHECK(r.ok && r.p.count == 3); CHECK(r.ts[0] == 100 && r.ts[1] == 300 && r.ts[2] == 400);
+    CHECK_NEAR(r.oh[0], 1.2, 1e-6); CHECK_NEAR(r.hh[0], 1.6, 1e-6); CHECK_NEAR(r.lh[0], 1.1, 1e-6);
+    // ts 300: open/high/low absent for this bar -> doji at the close
+    CHECK_NEAR(r.cl[1], 3.5, 1e-6);
+    CHECK_NEAR(r.oh[1], 3.5, 1e-6); CHECK_NEAR(r.hh[1], 3.5, 1e-6); CHECK_NEAR(r.lh[1], 3.5, 1e-6);
+    // ts 400: full candle kept; high 4.6 is below the close 5.0, so it is clamped up to the body
+    CHECK_NEAR(r.oh[2], 4.5, 1e-6); CHECK_NEAR(r.hh[2], 5.0, 1e-6); CHECK_NEAR(r.lh[2], 4.4, 1e-6);
+  }
+  // out-of-order stamps are dropped, not reordered (unchanged rule), and the surviving row keeps
+  // its own open/high/low - arrays stay row-aligned, never shifted
+  { Parsed r; parseFile(r, "{\"chart\":{\"result\":[{\"meta\":{},\"timestamp\":[100,300,200,400],"
+                           "\"indicators\":{\"quote\":[{\"close\":[1,4,3,5],\"open\":[0.5,3.5,2.5,4.5],\"high\":[1.5,4.5,3.5,9],\"low\":[0.1,3.4,2,4.4]}]}}],\"error\":null}}", 97, true);
+    CHECK(r.ok && r.p.count == 3); CHECK(r.ts[0] == 100 && r.ts[1] == 300 && r.ts[2] == 400);   // ts 200 dropped: behind 300
+    CHECK_NEAR(r.cl[1], 4.0, 1e-6); CHECK_NEAR(r.oh[1], 3.5, 1e-6); CHECK_NEAR(r.hh[1], 4.5, 1e-6); CHECK_NEAR(r.lh[1], 3.4, 1e-6);
+    CHECK_NEAR(r.cl[2], 5.0, 1e-6); CHECK_NEAR(r.hh[2], 9.0, 1e-6); CHECK_NEAR(r.lh[2], 4.4, 1e-6); }   // high 9 sits above the body: kept verbatim
   // 404 body
   { Parsed r; parseFile(r, "{\"chart\":{\"result\":null,\"error\":{\"code\":\"Not Found\",\"description\":\"No data found\"}}}");
     CHECK(!r.ok); CHECK_STR(r.p.error(), "Not Found"); }
@@ -339,9 +369,29 @@ static void testChartData() {
   { uint32_t t2[2] = {1, 2}; float v2[2] = {1, 2}; CHECK(downsampleMinMax(t2, v2, 2, ot, ov, 64) == 2); }
   uint8_t r; CHECK(parseRange("1d", r) && r == RANGE_1D); CHECK(parseRange("5D", r) && r == RANGE_5D); CHECK(parseRange("1mo", r) && r == RANGE_1M);
   CHECK(!parseRange("1y", r)); CHECK(!parseRange(nullptr, r));
-  uint32_t ct[40]; float cv[40]; Chart c; memset(&c, 0, sizeof c); c.t = ct; c.v = cv; c.cap = 40;
-  chartStore(c, t, v, 300, 99.5f, 5, 7); CHECK(c.valid && c.n <= 40 && c.base == 99.5f && c.okMs == 5 && c.okEpoch == 7);
-  chartStore(c, t, v, 1, NAN, 5, 7); CHECK(!c.valid);
+  uint32_t ct[40]; float cv[40], co[40], chh[40], cll[40]; Chart c; memset(&c, 0, sizeof c);
+  c.t = ct; c.v = cv; c.o = co; c.h = chh; c.l = cll; c.cap = 40;
+  // OHLC aggregation: bucket merge keeps extremes, first/last bars verbatim, timestamps ordered
+  float vo[300], vh[300], vl[300];
+  for (int i = 0; i < 300; i++) { vo[i] = v[i]; vh[i] = v[i] + 1.0f; vl[i] = v[i] - 1.0f; }
+  chartStore(c, t, vo, vh, vl, v, 300, 99.5f, 5, 7); CHECK(c.valid && c.n <= 40 && c.base == 99.5f && c.okMs == 5 && c.okEpoch == 7);
+  chartStore(c, t, vo, vh, vl, v, 1, NAN, 5, 7); CHECK(!c.valid);
+  uint32_t at[64]; float ao[64], ah[64], al[64], ac[64];
+  uint16_t m = downsampleOHLC(t, vo, vh, vl, v, 300, at, ao, ah, al, ac, 64);
+  CHECK(m <= 64 && m >= 2);
+  CHECK(at[0] == t[0] && at[m - 1] == t[299]);
+  CHECK_NEAR(ao[0], vo[0], 1e-6); CHECK_NEAR(ac[m - 1], v[299], 1e-6);
+  bool hi500 = false, loNeg = false;
+  for (int i = 0; i < m; i++) {
+    if (i) CHECK(at[i] > at[i - 1]);
+    CHECK(ah[i] >= ao[i] && ah[i] >= ac[i]); CHECK(al[i] <= ao[i] && al[i] <= ac[i]);
+    if (ah[i] >= 501.0f) hi500 = true;      // spike high (v[123]=500 -> h=501) must survive a merge
+    if (al[i] <= -6.0f) loNeg = true;       // spike low  (v[200]=-5  -> l=-6)
+  }
+  CHECK(hi500 && loNeg);
+  CHECK(downsampleOHLC(t, vo, vh, vl, v, 10, at, ao, ah, al, ac, 64) == 10 && ao[9] == vo[9]);
+  CHECK(downsampleOHLC(t, vo, vh, vl, v, 0, at, ao, ah, al, ac, 64) == 0);
+  CHECK(downsampleOHLC(t, vo, vh, vl, v, 300, at, ao, ah, al, ac, 2) == 2 && at[1] == t[299]);
 }
 
 static void sinkStr(void *c, const char *d, size_t n) { static_cast<std::string *>(c)->append(d, n); }

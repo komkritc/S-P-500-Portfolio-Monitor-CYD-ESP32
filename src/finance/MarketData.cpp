@@ -24,6 +24,7 @@ static Due s_spQ, s_chart[RANGE_COUNT], s_sym[MAX_SYMBOLS];
 static YahooParser s_parser;
 static uint32_t s_stageT[STAGE_CAP];
 static float s_stageV[STAGE_CAP];
+static float s_stageO[STAGE_CAP], s_stageH[STAGE_CAP], s_stageL[STAGE_CAP];   // candle bars (chart jobs only)
 static JobType s_job = J_NONE;
 static uint8_t s_jobArg = 0;
 static uint32_t s_nextStart = 0;
@@ -251,7 +252,7 @@ static void commitJob(uint32_t now) {
       if (s_parser.count < 2) { yahoo::Result r = {yahoo::FAILED, 200, "no chart points", false, false}; failJob(now, r); return; }
       float base = NAN;
       if (s_jobArg == RANGE_1D && isNum(s_parser.prevClose) && s_parser.prevClose > 0) base = (float)s_parser.prevClose;
-      chartStore(c, s_stageT, s_stageV, s_parser.count, base, now, ep);
+      chartStore(c, s_stageT, s_stageO, s_stageH, s_stageL, s_stageV, s_parser.count, base, now, ep);
       uint32_t untilOpen;
       uint16_t eff = effectiveInterval(g_app.settings.chartRefreshS, CLOSED_CHART_S, ep, false, &untilOpen);
       g_app.effChartS = eff;
@@ -310,7 +311,7 @@ static bool pickAndStart(uint32_t now) {
     // window: 9 days before .. 2 days after the buy date, daily bars (long enough to span holiday weekends)
     if (!yahoo::buildPeriodPath(path, sizeof path, s_addSym, mid - 9 * 86400, mid + 2 * 86400)) { s_add.state = JOB_ERROR; strlcpy(s_add.error, "bad symbol", sizeof s_add.error); return false; }
     (void)ep;
-    s_parser.begin(s_stageT, s_stageV, STAGE_CAP);
+    s_parser.begin(s_stageT, s_stageV, nullptr, nullptr, nullptr, STAGE_CAP);
     s_job = J_BUY_PRICE;
     if (!startRequest(path)) { const yahoo::Result &r = yahoo::result(); s_add.state = JOB_ERROR; strlcpy(s_add.error, r.error, sizeof s_add.error); s_job = J_NONE; return true; }
     return true;
@@ -326,7 +327,7 @@ static bool pickAndStart(uint32_t now) {
       strlcpy(s_salePrice.error, "bad symbol", sizeof s_salePrice.error);
       return false;
     }
-    s_parser.begin(s_stageT, s_stageV, STAGE_CAP);
+    s_parser.begin(s_stageT, s_stageV, nullptr, nullptr, nullptr, STAGE_CAP);
     s_job = J_SALE_PRICE;
     if (!startRequest(path)) {
       const yahoo::Result &r = yahoo::result();
@@ -340,7 +341,7 @@ static bool pickAndStart(uint32_t now) {
   // ^GSPC quote
   if (due(s_spQ, now)) {
     if (!yahoo::buildRangePath(path, sizeof path, SP500_SYMBOL, "1d", "1d")) return false;
-    s_parser.begin(nullptr, nullptr, 0);
+    s_parser.begin(nullptr, nullptr, nullptr, nullptr, nullptr, 0);
     s_job = J_SP_QUOTE;
     if (!startRequest(path)) { failJob(now, yahoo::result()); s_job = J_NONE; }
     return true;
@@ -349,7 +350,7 @@ static bool pickAndStart(uint32_t now) {
   for (uint8_t i = 0; i < g_app.book.n; i++) {
     if (!strcmp(g_app.book.q[i].symbol, SP500_SYMBOL) || !due(s_sym[i], now)) continue;
     if (!yahoo::buildRangePath(path, sizeof path, g_app.book.q[i].symbol, "1d", "1d")) continue;
-    s_parser.begin(nullptr, nullptr, 0);
+    s_parser.begin(nullptr, nullptr, nullptr, nullptr, nullptr, 0);
     s_job = J_SYM_QUOTE; s_jobArg = i;
     if (!startRequest(path)) { failJob(now, yahoo::result()); s_job = J_NONE; }
     return true;
@@ -359,7 +360,7 @@ static bool pickAndStart(uint32_t now) {
     uint8_t r = (s_viewRange + k) % RANGE_COUNT;
     if (!due(s_chart[r], now)) continue;
     if (!yahoo::buildRangePath(path, sizeof path, SP500_SYMBOL, rangeName(r), rangeInterval(r))) continue;
-    s_parser.begin(s_stageT, s_stageV, STAGE_CAP);
+    s_parser.begin(s_stageT, s_stageV, s_stageO, s_stageH, s_stageL, STAGE_CAP);
     s_job = J_CHART; s_jobArg = r;
     if (!startRequest(path)) { failJob(now, yahoo::result()); s_job = J_NONE; }
     return true;

@@ -66,9 +66,10 @@ Conventions
 {"range":"1d","interval":"5m","valid":true,"stale":false,"updated":1795210560,"count":79,
  "first":7150.39,"last":6910.39,"base":7175.83,"change":-265.44,"changePct":-3.70,
  "min":6882.66,"max":7198.67,
- "t":[1795185000,1795185300],"v":[7150.39,7135.65]}
+ "t":[1795185000,1795185300],"v":[7150.39,7135.65],
+ "o":[7150.39,7140.10],"h":[7155.02,7142.30],"l":[7148.11,7130.04]}
 ```
-`base` is the reference for `change`: previous close for `1d`, first point for `5d`/`1mo`. `t[]`/`v[]` are parallel arrays, no synthetic points. Optional `&max=N` (N>=8) downsamples (min/max preserving). If never fetched: `valid:false,count:0,t:[],v:[]`. Bad `range` -> 400.
+`base` is the reference for `change`: previous close for `1d`, first point for `5d`/`1mo`. `t[]`/`v[]` are parallel arrays, no synthetic points. `v` is the close; `o`/`h`/`l` are the matching open/high/low of every bar (candlesticks) - same length as `v`, and `min`/`max` already include the wick extremes. A bar Yahoo did not supply a full candle for is a doji at the close (`o=h=l=v`), never an invented range. Optional `&max=N` (N>=8) aggregates: first and last bar verbatim, each middle bucket merged into one candle (open = first open, high = bucket max, low = bucket min, close = last close). If never fetched: `valid:false,count:0,t:[],v:[],o:[],h:[],l:[]`. Bad `range` -> 400.
 
 ### GET /api/wifi/status
 ```json

@@ -64,15 +64,16 @@ static void loadCharts(AppState &a, uint32_t nowMs, uint32_t epoch) {
   for (int r = 0; r < 3; r++) {
     std::string body = readFile(g_dir + "/fixtures/" + files[r] + ".json");
     static uint32_t ts[STAGE_CAP]; static float cl[STAGE_CAP];
-    YahooParser p; p.begin(ts, cl, STAGE_CAP); p.feed(body.data(), body.size()); p.finish();
+    static float oh[STAGE_CAP], hh[STAGE_CAP], lh[STAGE_CAP];   // candle bars, as the device stages them
+    YahooParser p; p.begin(ts, cl, oh, hh, lh, STAGE_CAP); p.feed(body.data(), body.size()); p.finish();
     float base = r == RANGE_1D ? (float)p.prevClose : NAN;
-    chartStore(a.charts[r], ts, cl, p.count, base, nowMs, epoch);
+    chartStore(a.charts[r], ts, oh, hh, lh, cl, p.count, base, nowMs, epoch);
   }
 }
 
 static void loadQuote(AppState &a, uint32_t nowMs, uint32_t epoch) {
   std::string body = readFile(g_dir + "/fixtures/q.json");
-  YahooParser p; p.begin(nullptr, nullptr, 0); p.feed(body.data(), body.size()); p.finish();
+  YahooParser p; p.begin(nullptr, nullptr, nullptr, nullptr, nullptr, 0); p.feed(body.data(), body.size()); p.finish();
   SP500Quote &q = a.sp; memset(&q, 0, sizeof q);
   q.valid = true; q.last = p.price; q.prevClose = p.prevClose; q.open = p.open; q.high = p.dayHigh; q.low = p.dayLow;
   q.marketTime = p.marketTime; strcpy(q.tz, p.tz); q.okMs = nowMs; q.okEpoch = epoch;

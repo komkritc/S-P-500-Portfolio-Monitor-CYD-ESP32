@@ -90,6 +90,12 @@ void computeChartStats(const Chart &c, ChartStats &s) {
     if (c.v[i] < s.minV) s.minV = c.v[i];
     if (c.v[i] > s.maxV) s.maxV = c.v[i];
   }
+  if (c.o && c.h && c.l) {   // wick extremes define the true range when candles are stored
+    for (uint16_t i = 0; i < c.n; i++) {
+      if (c.h[i] > s.maxV) s.maxV = c.h[i];
+      if (c.l[i] < s.minV) s.minV = c.l[i];
+    }
+  }
   s.base = (isNum(c.base) && c.base > 0) ? c.base : s.first;
   s.change = s.last - s.base;
   s.changePct = safeDiv(s.change, s.base) * 100.0;

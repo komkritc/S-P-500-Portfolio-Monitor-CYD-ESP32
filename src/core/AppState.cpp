@@ -25,6 +25,9 @@ void appInit(AppState &a) {
   for (uint8_t r = 0; r < RANGE_COUNT; r++) {
     a.charts[r].t = a.chartT + off;
     a.charts[r].v = a.chartV + off;
+    a.charts[r].o = a.chartO + off;
+    a.charts[r].h = a.chartH + off;
+    a.charts[r].l = a.chartL + off;
     a.charts[r].cap = RANGE_CAP[r];
     off += RANGE_CAP[r];
     a.charts[r].base = NAN;

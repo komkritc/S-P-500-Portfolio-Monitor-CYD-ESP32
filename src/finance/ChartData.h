@@ -6,8 +6,16 @@
 // extremes of every bucket, in time order). Never invents points. Returns the number written.
 uint16_t downsampleMinMax(const uint32_t *t, const float *v, uint16_t n, uint32_t *outT, float *outV, uint16_t maxOut);
 
-// Copy staged points into a stored chart (downsampling when it does not fit its capacity).
-void chartStore(Chart &c, const uint32_t *t, const float *v, uint16_t n, float base, uint32_t okMs, uint32_t okEpoch);
+// OHLC-preserving aggregation to at most maxOut bars: first and last bar verbatim, middle split
+// into buckets where each bucket merges into one candle (open = first open, high = bucket max,
+// low = bucket min, close = last close, ts = last ts). Never invents points.
+uint16_t downsampleOHLC(const uint32_t *t, const float *o, const float *h, const float *l, const float *v,
+                        uint16_t n, uint32_t *outT, float *outO, float *outH, float *outL, float *outV,
+                        uint16_t maxOut);
+
+// Copy staged points into a stored chart (aggregating when they do not fit its capacity).
+void chartStore(Chart &c, const uint32_t *t, const float *o, const float *h, const float *l,
+                const float *v, uint16_t n, float base, uint32_t okMs, uint32_t okEpoch);
 
 const char *rangeName(uint8_t r);        // "1d" "5d" "1mo"
 const char *rangeLabel(uint8_t r);       // "1D" "5D" "1M"

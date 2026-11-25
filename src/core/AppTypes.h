@@ -5,7 +5,7 @@
 #include <stddef.h>
 #include <math.h>
 
-#define FW_VERSION "1.1.5"
+#define FW_VERSION "1.1.7"
 #define SP500_SYMBOL "^GSPC"
 
 static const uint8_t  MAX_POSITIONS = 12;   // open lots; trimmed from 24 to fit the sale ledger in RAM
@@ -107,7 +107,10 @@ struct Chart {
   uint16_t n;
   uint16_t cap;
   uint32_t* t;
-  float*    v;
+  float*    v;                // close
+  float*    o;                // open  (candlesticks; sliced from the same pool as t/v)
+  float*    h;                // high
+  float*    l;                // low
   float     base;             // reference for change: prev close (1D) or NaN = first point
   uint32_t  okMs;
   uint32_t  okEpoch;

@@ -34,9 +34,12 @@ struct AppState {
   uint8_t  posCount;
   QuoteBook book;               // last good price per symbol (staleness tracked per symbol)
   SP500Quote sp;                // detailed ^GSPC quote
-  Chart    charts[RANGE_COUNT]; // 1D, 5D, 1M. t/v point into the shared pool below
+  Chart    charts[RANGE_COUNT]; // 1D, 5D, 1M. t/v/o/h/l point into the shared pool below
   uint32_t chartT[CHART_POOL];        // one pool sized for the sum of RANGE_CAP (no per-range waste)
-  float    chartV[CHART_POOL];
+  float    chartV[CHART_POOL];        // close
+  float    chartO[CHART_POOL];        // open / high / low (candlestick bars)
+  float    chartH[CHART_POOL];
+  float    chartL[CHART_POOL];
 
   // effective refresh intervals in seconds (the scheduler may stretch them while the market is closed);
   // staleness = 3 x the effective interval.

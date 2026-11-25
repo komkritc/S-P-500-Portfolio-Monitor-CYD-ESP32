@@ -58,6 +58,10 @@ th.s{cursor:pointer}th.s:hover{color:var(--acc)}
 .n{text-align:right}
 tfoot td,tr.tot td{font-weight:700;border-top:1px solid var(--bd2);border-bottom:0}
 .rg{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.bbt{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;cursor:pointer;margin-left:8px}
+.bbt input{width:auto;margin:0;accent-color:var(--acc)}
+.bbsel{width:auto;margin:0;padding:6px 8px;font-size:12px}
+.bbsw{display:inline-block;width:10px;height:2px;border-radius:1px;background:var(--acc2);vertical-align:middle;margin-left:8px}
 .btn{background:var(--raised);color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:7px 14px;font:inherit;cursor:pointer}
 .btn:hover:not(:disabled){border-color:var(--acc)}
 .btn:disabled{opacity:.5;cursor:default}
@@ -147,7 +151,7 @@ dl{grid-template-columns:1fr;gap:0}dd{margin-bottom:6px}
 <section id="market" class="tab">
 <div class="panel"><h2>S&amp;P 500 Index</h2><div id="mqp"></div></div>
 <div class="panel">
-<div class="rg" id="rg"><button class="btn" data-r="1d">1D</button><button class="btn" data-r="5d">5D</button><button class="btn" data-r="1mo">1M</button></div>
+<div class="rg" id="rg"><button class="btn" data-r="1d">1D</button><button class="btn" data-r="5d">5D</button><button class="btn" data-r="1mo">1M</button><label class="bbt" title="Bollinger Bands"><span class="bbsw"></span>BB<input type="checkbox" id="bb-on"></label><select id="bb-p" class="bbsel" title="BB period (SMA)"><option value="10">10</option><option value="20" selected>20</option><option value="50">50</option></select><select id="bb-k" class="bbsel" title="BB width (std dev multiplier)"><option value="1.5">1.5&sigma;</option><option value="2" selected>2&sigma;</option><option value="2.5">2.5&sigma;</option></select></div>
 <div id="cw"><canvas id="cv"></canvas><div id="tt"></div></div>
 <div class="qt" style="margin:10px 0 0"><span id="ch-sel" class="g"></span><span id="ch-chg" class="c"></span></div>
 <div class="qt g" style="margin:4px 0 0"><span id="ch-upd"></span><span class="b b-stale" id="ch-stale" hidden></span></div>
@@ -517,6 +521,16 @@ theme(document.documentElement.dataset.theme||'dark');
 /* ---- chart ---- */
 const RL={'1d':'1D','5d':'5D','1mo':'1M'};
 let range='1d',CC={},fl={},hov=-1,cv=$('cv'),cx=cv.getContext('2d'),W=0,H=0;
+/* Bollinger Bands state, persisted per browser (localStorage), never on the device */
+let BB=(function(){let o;try{o=JSON.parse(localStorage.getItem('sp500.bb'))||{}}catch(e){o={}}
+return{on:!!o.on,p:[10,20,50].includes(+o.p)?+o.p:20,k:[1.5,2,2.5].includes(+o.k)?+o.k:2}})();
+function bbSave(){try{localStorage.setItem('sp500.bb',JSON.stringify(BB))}catch(e){}}
+function bbands(v,p,k){/* SMA(p) +/- k*sd, running sum/sum-of-squares, O(n); leading p-1 points null */
+const n=v.length,md=Array(n),up=Array(n),dn=Array(n);let s=0,q=0;
+for(let i=0;i<n;i++){s+=v[i];q+=v[i]*v[i];if(i>=p){const x=v[i-p];s-=x;q-=x*x}
+if(i>=p-1){const m=s/p,sd=Math.sqrt(Math.max(0,q/p-m*m));md[i]=m;up[i]=m+k*sd;dn[i]=m-k*sd}
+else md[i]=up[i]=dn[i]=null}
+return{md,up,dn,p,k}}
 const PL=58,PT=10,PB=24,PR=10;
 function ensureS(){return S?Promise.resolve():(fl.s||(fl.s=api('/api/settings').then(applyS).finally(()=>delete fl.s)))}
 function applyS(s){S=s;tzm=s.tzMode;tzo=s.localOffsetMin||0;mkfmt();for(const k in CC)CC[k].tk=null;
@@ -548,7 +562,11 @@ const c=CC[range],d=c&&c.d;cx.font='11px system-ui,Segoe UI,Arial,sans-serif';
 if(!d||!d.valid||d.count<2){cx.fillStyle=C('--muted');cx.textAlign='center';cx.fillText(c?'No chart data available (N/A)':'Loading...',W/2,H/2);return}
 if(!c.tk)ticks(c);
 const v=d.v,n=v.length,pw=W-PL-PR,ph=H-PT-PB,base=range=='1d'&&d.base!=null?d.base:null;
+let bb=null;if(BB.on){if(!c.bb||c.bb.p!=BB.p||c.bb.k!=BB.k)c.bb=bbands(v,BB.p,BB.k);bb=c.bb}
+const cd=d.o&&d.h&&d.l&&d.o.length==n;  // firmware sends o/h/l -> candlesticks
 let mn=Math.min.apply(null,v),mx=Math.max.apply(null,v);if(base!=null){mn=Math.min(mn,base);mx=Math.max(mx,base)}
+if(cd){for(let i=0;i<n;i++){if(d.h[i]>mx)mx=d.h[i];if(d.l[i]<mn)mn=d.l[i]}}
+if(bb){for(let i=BB.p-1;i<n;i++){if(bb.up[i]>mx)mx=bb.up[i];if(bb.dn[i]<mn)mn=bb.dn[i]}}
 const pd=(mx-mn)*.08||1,lo=mn-pd,hi=mx+pd,X=i=>PL+pw*i/(n-1),Y=x=>PT+ph*(1-(x-lo)/(hi-lo)),col=d.change>=0?C('--up'):C('--down');
 cx.lineWidth=1;cx.strokeStyle=C('--line');cx.fillStyle=C('--muted');cx.textAlign='right';cx.textBaseline='middle';
 for(let k=0;k<5;k++){const x=lo+(hi-lo)*k/4,y=Y(x);cx.beginPath();cx.moveTo(PL,y+.5);cx.lineTo(W-PR,y+.5);cx.stroke();cx.fillText(nf(x,hi-lo<20?2:0),PL-6,y)}
@@ -559,12 +577,30 @@ for(const i of c.sp){const x=Math.round(X(i-.5))+.5;cx.beginPath();cx.moveTo(x,P
 if(base!=null){const y=Math.round(Y(base))+.5;cx.beginPath();cx.moveTo(PL,y);cx.lineTo(W-PR,y);cx.stroke()}
 cx.setLineDash([]);
 const g=cx.createLinearGradient(0,PT,0,H-PB);g.addColorStop(0,col+'55');g.addColorStop(1,col+'05');
-cx.beginPath();cx.moveTo(X(0),H-PB);for(let i=0;i<n;i++)cx.lineTo(X(i),Y(v[i]));cx.lineTo(X(n-1),H-PB);cx.closePath();cx.fillStyle=g;cx.fill();
-cx.beginPath();for(let i=0;i<n;i++){i?cx.lineTo(X(i),Y(v[i])):cx.moveTo(X(i),Y(v[i]))}cx.strokeStyle=col;cx.lineWidth=1.6;cx.lineJoin='round';cx.stroke();
+if(cd){/* candles: wick high->low, body open->close, filled green up / red down */
+const bw=Math.max(1,Math.min(9,pw/n*.7)),cu=C('--up'),cD=C('--down');
+for(let i=0;i<n;i++){const x=X(i),o=d.o[i],c2=v[i],k=o<=c2?cu:cD;
+cx.strokeStyle=k;cx.lineWidth=1;cx.beginPath();cx.moveTo(Math.round(x)+.5,Y(d.h[i]));cx.lineTo(Math.round(x)+.5,Y(d.l[i]));cx.stroke();
+const yt=Y(o>c2?o:c2),yb=Y(o<c2?o:c2);
+cx.fillStyle=k;cx.fillRect(Math.round(x-bw/2)+.5,yt,Math.round(bw)||1,Math.max(1,yb-yt));}
+}else{cx.beginPath();cx.moveTo(X(0),H-PB);for(let i=0;i<n;i++)cx.lineTo(X(i),Y(v[i]));cx.lineTo(X(n-1),H-PB);cx.closePath();cx.fillStyle=g;cx.fill();
+cx.beginPath();for(let i=0;i<n;i++){i?cx.lineTo(X(i),Y(v[i])):cx.moveTo(X(i),Y(v[i]))}cx.strokeStyle=col;cx.lineWidth=1.6;cx.lineJoin='round';cx.stroke();}
+if(bb){/* band fill + upper/lower + dashed middle (SMA), drawn after the price line */
+const i0=BB.p-1;if(i0<n){cx.beginPath();cx.moveTo(X(i0),Y(bb.up[i0]));
+for(let i=i0+1;i<n;i++)cx.lineTo(X(i),Y(bb.up[i]));
+for(let i=n-1;i>=i0;i--)cx.lineTo(X(i),Y(bb.dn[i]));
+cx.closePath();cx.fillStyle=C('--soft')+'1c';cx.fill();
+cx.strokeStyle=C('--soft');cx.lineWidth=1;cx.beginPath();
+for(let i=i0;i<n;i++){i==i0?cx.moveTo(X(i),Y(bb.up[i])):cx.lineTo(X(i),Y(bb.up[i]))}
+cx.moveTo(X(i0),Y(bb.dn[i0]));for(let i=i0+1;i<n;i++)cx.lineTo(X(i),Y(bb.dn[i]));cx.stroke();
+cx.strokeStyle=C('--acc2');cx.setLineDash([4,4]);cx.beginPath();
+for(let i=i0;i<n;i++){i==i0?cx.moveTo(X(i),Y(bb.md[i])):cx.lineTo(X(i),Y(bb.md[i]))}
+cx.stroke();cx.setLineDash([])}}
 const tt=$('tt');
 if(hov>=0&&hov<n){const x=X(hov),y=Y(v[hov]);cx.strokeStyle=C('--muted');cx.lineWidth=1;cx.beginPath();cx.moveTo(Math.round(x)+.5,PT);cx.lineTo(Math.round(x)+.5,H-PB);cx.stroke();
 cx.fillStyle=col;cx.beginPath();cx.arc(x,y,4,0,7);cx.fill();cx.strokeStyle=C('--bg');cx.stroke();
-tt.textContent=fm.md.format(sh(d.t[hov]))+', '+fm.hm.format(sh(d.t[hov]))+'  '+nf(v[hov],2);tt.style.display='block';
+tt.textContent=fm.md.format(sh(d.t[hov]))+', '+fm.hm.format(sh(d.t[hov]))+(cd?'  O '+nf(d.o[hov],2)+' H '+nf(d.h[hov],2)+' L '+nf(d.l[hov],2)+' C ':'  ')+nf(v[hov],2);
+if(bb&&bb.up[hov]!=null)tt.textContent+='   BB '+nf(bb.up[hov],2)+' / '+nf(bb.md[hov],2)+' / '+nf(bb.dn[hov],2);tt.style.display='block';
 tt.style.left=x>W/2?'auto':Math.min(x+12,W-130)+'px';tt.style.right=x>W/2?(W-x+12)+'px':'auto'}else tt.style.display='none'}
 function hv(e){const c=CC[range],d=c&&c.d;if(!d||!d.valid||d.count<2)return;const r=cv.getBoundingClientRect();
 hov=Math.max(0,Math.min(d.count-1,Math.round((e.clientX-r.left-PL)/(W-PL-PR)*(d.count-1))));draw()}
@@ -572,6 +608,11 @@ cv.addEventListener('pointermove',hv);cv.addEventListener('pointerdown',hv);
 ['pointerleave','pointercancel'].forEach(n=>cv.addEventListener(n,()=>{hov=-1;draw()}));
 addEventListener('resize',()=>{if(cur=='market'){sizeCv();draw()}});
 $('rg').onclick=e=>{const r=e.target.dataset&&e.target.dataset.r;if(!r)return;range=r;hov=-1;rChart();ldChart().catch(()=>{})};
+/* BB controls */
+$('bb-on').checked=BB.on;$('bb-p').value=BB.p;$('bb-k').value=BB.k;
+$('bb-on').onchange=e=>{BB.on=e.target.checked;bbSave();draw()};
+$('bb-p').onchange=e=>{BB.p=+e.target.value;bbSave();draw()};
+$('bb-k').onchange=e=>{BB.k=+e.target.value;bbSave();draw()};
 /* ---- wifi ---- */
 let wbusy=0,scanning=0;
 const bars=r=>{const n=r>=-55?4:r>=-65?3:r>=-75?2:r>=-85?1:0,b=E('span','bars');for(let i=0;i<4;i++)b.append(E('i',i<n?'on':''));return b};

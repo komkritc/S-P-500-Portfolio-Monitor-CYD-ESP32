@@ -46,7 +46,10 @@ drawn too (`docs/img/lcd-offline.png`), as is the boot banner.
   position count, a live `^GSPC` card with open / high / low / prev, and a separate Realised
   P/L page (all-time, this year, lifetime, sales, reversals, last sale).
 * **Web dashboard** at `http://sp500-32.local`: portfolio cards, interactive 1D / 5D / 1M
-  chart, sortable position table, add and delete positions, sell with preview and confirm,
+  chart drawn as real **candlesticks** (open / high / low / close per bar) with an optional
+  **Bollinger Bands** overlay — period 10 / 20 / 50 and 1.5 / 2 / 2.5σ width, remembered per
+  browser, computed in the page from the same series so the device stores nothing extra,
+  sortable position table, add and delete positions, sell with preview and confirm,
   transaction history with undo and delete, CSV export, Wi-Fi setup, settings, diagnostics
   and OTA upload. Dark theme, works on a phone.
 * **Sale ledger:** FIFO or a specific lot, THB amount / quantity / entire holding, preview

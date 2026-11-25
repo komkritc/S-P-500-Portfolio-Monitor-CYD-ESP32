@@ -3,15 +3,18 @@
 #include <string.h>
 #include <stdio.h>
 
-void YahooParser::begin(uint32_t *tsBuf, float *closeBuf, uint16_t cap) {
+void YahooParser::begin(uint32_t *tsBuf, float *closeBuf, float *oBuf, float *hBuf, float *lBuf, uint16_t cap) {
   price = prevClose = dayHigh = dayLow = open = NAN;
   prevClose2_ = NAN;
   marketTime = 0; gmtOffset = 0; count = 0;
   tz[0] = 0; symbol[0] = 0; tzName[0] = 0; errCode_[0] = 0; err_[0] = 0;
-  ts_ = tsBuf; cl_ = closeBuf; cap_ = cap;
+  ts_ = tsBuf; cl_ = closeBuf; oh_ = oBuf; hh_ = hBuf; lh_ = lBuf; cap_ = cap;
   tsN_ = clN_ = 0;
   overflow_ = resultNull_ = haveResult_ = haveOpen_ = false;
   if (cl_) for (uint16_t i = 0; i < cap_; i++) cl_[i] = NAN;
+  if (oh_) for (uint16_t i = 0; i < cap_; i++) oh_[i] = NAN;
+  if (hh_) for (uint16_t i = 0; i < cap_; i++) hh_[i] = NAN;
+  if (lh_) for (uint16_t i = 0; i < cap_; i++) lh_[i] = NAN;
   js_.begin(&YahooParser::onEvent, this);
 }
 
@@ -59,7 +62,19 @@ void YahooParser::handle(const char *path, int idx, JsonKind k, const char *text
     if ((uint16_t)(idx + 1) > clN_) clN_ = (uint16_t)(idx + 1);
     if (k == JK_NUM) cl_[idx] = (float)num(text);   // null stays NaN
   } else if (!strcmp(p, ".indicators.quote[].open[]")) {
+    if (oh_) {
+      if ((uint16_t)idx >= cap_) { overflow_ = true; return; }
+      if (k == JK_NUM) oh_[idx] = (float)num(text);
+    }
     if (k == JK_NUM && !haveOpen_) { open = num(text); haveOpen_ = true; }   // first bar of the range = session open
+  } else if (!strcmp(p, ".indicators.quote[].high[]")) {
+    if (!hh_) return;
+    if ((uint16_t)idx >= cap_) { overflow_ = true; return; }
+    if (k == JK_NUM) hh_[idx] = (float)num(text);
+  } else if (!strcmp(p, ".indicators.quote[].low[]")) {
+    if (!lh_) return;
+    if ((uint16_t)idx >= cap_) { overflow_ = true; return; }
+    if (k == JK_NUM) lh_[idx] = (float)num(text);
   }
 }
 
@@ -77,7 +92,20 @@ bool YahooParser::finish() {
     uint32_t lastT = 0;
     for (uint16_t i = 0; i < n; i++) {
       if (!isNum(cl_[i]) || cl_[i] <= 0 || ts_[i] <= lastT) continue;
-      ts_[count] = ts_[i]; cl_[count] = cl_[i]; lastT = ts_[i]; count++;
+      ts_[count] = ts_[i]; cl_[count] = cl_[i];
+      if (oh_ && hh_ && lh_) {   // keep the OHLC bar consistent with the surviving close
+        float o = oh_[i], h = hh_[i], l = lh_[i], c = cl_[count];
+        if (!isNum(o) || !isNum(h) || !isNum(l) || h < l) {
+          oh_[count] = hh_[count] = lh_[count] = c;   // degrade to a doji, invent nothing
+        } else {
+          if (o > h) h = o;
+          if (c > h) h = c;              // clamp high around the body
+          if (o < l) l = o;
+          if (c < l) l = c;              // clamp low around the body
+          oh_[count] = o; hh_[count] = h; lh_[count] = l;
+        }
+      }
+      lastT = ts_[i]; count++;
     }
   }
   return true;

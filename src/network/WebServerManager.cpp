@@ -199,12 +199,18 @@ static void apiChart() {
   const Chart &c = g_app.charts[range];
   const ChartStats &s = g_app.chartStats[range];
   uint16_t n = c.valid ? c.n : 0;
-  // optional min/max-preserving downsample into a small scratch buffer on the stack-free heap path
-  uint32_t *dt = nullptr; float *dv = nullptr; uint16_t outN = n;
-  const uint32_t *ot = c.t; const float *ov = c.v;
+  // optional OHLC-preserving aggregation into small scratch buffers on the stack-free heap path
+  uint32_t *dt = nullptr; float *dO = nullptr, *dH = nullptr, *dL = nullptr, *dV = nullptr;
+  uint16_t outN = n;
+  const uint32_t *ot = c.t; const float *o0 = c.o, *h0 = c.h, *l0 = c.l, *ov = c.v;
   if (maxPts && n > maxPts) {
-    dt = (uint32_t *)malloc(maxPts * 4); dv = (float *)malloc(maxPts * 4);
-    if (dt && dv) { outN = downsampleMinMax(c.t, c.v, n, dt, dv, maxPts); ot = dt; ov = dv; }
+    dt = (uint32_t *)malloc(maxPts * 4);
+    dO = (float *)malloc(maxPts * 4); dH = (float *)malloc(maxPts * 4);
+    dL = (float *)malloc(maxPts * 4); dV = (float *)malloc(maxPts * 4);
+    if (dt && dO && dH && dL && dV) {
+      outN = downsampleOHLC(c.t, c.o, c.h, c.l, c.v, n, dt, dO, dH, dL, dV, maxPts);
+      ot = dt; o0 = dO; h0 = dH; l0 = dL; ov = dV;
+    }
   }
   Reply r(200); JsonWriter &w = r.w;
   w.beginObj().kStr("range", rangeName(range)).kStr("interval", rangeInterval(range)).kBool("valid", c.valid && s.valid)
@@ -212,8 +218,11 @@ static void apiChart() {
   w.kNum("first", s.first).kNum("last", s.last).kNum("base", s.base).kNum("change", s.change).kNum("changePct", s.changePct).kNum("min", s.minV).kNum("max", s.maxV);
   w.key("t").beginArr(); for (uint16_t i = 0; i < outN; i++) w.integer(ot[i]); w.endArr();
   w.key("v").beginArr(); for (uint16_t i = 0; i < outN; i++) w.num(ov[i]); w.endArr();
+  w.key("o").beginArr(); for (uint16_t i = 0; i < outN; i++) w.num(o0[i]); w.endArr();
+  w.key("h").beginArr(); for (uint16_t i = 0; i < outN; i++) w.num(h0[i]); w.endArr();
+  w.key("l").beginArr(); for (uint16_t i = 0; i < outN; i++) w.num(l0[i]); w.endArr();
   w.endObj();
-  free(dt); free(dv);
+  free(dt); free(dO); free(dH); free(dL); free(dV);
 }
 
 static void apiSettingsGet() { Reply r(200); settingsWrite(r.w, g_app.settings, false, true); }
