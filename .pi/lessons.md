@@ -143,3 +143,11 @@ Branch `smalltv-only` / remote `gh/main` is a history whose root *is* the SmallT
   bands-on frame against the bands-off frame (pixels must differ), and count exact `Cfg::GREEN`
   and `Cfg::RED` pixels inside the plot - a single-colour line chart can never produce both, so
   that check proves the candlesticks were actually drawn.
+* A test scenario that fakes a rising period must reverse the **whole bar**. The `S_UP` fixture
+  reversed `c.v` only, leaving each bar its old open/high/low, and the line chart hid the lie;
+  candlesticks turned it into a fan of giant wicks. Reverse `v`, `o`, `h`, `l` together and leave
+  `t` alone, so the x axis and labels stay put.
+* The README screenshots in `docs/img` are generated, not stored art: run
+  `tests/preview/run_preview.py` then `tools/make_readme_img.py`, and change which frames are
+  used in `SINGLES` / `GRID`. Regenerate them whenever the panel's look changes, or the README
+  quietly shows an old firmware.
