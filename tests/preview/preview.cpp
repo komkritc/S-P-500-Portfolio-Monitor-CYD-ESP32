@@ -333,6 +333,33 @@ int main(int argc, char **argv) {
   showFrame("inc_fresh");
   if (memcmp(inc, tft.fb, sizeof inc) != 0) { printf("  PROBLEM inc: cached repaint != fresh render\n"); g_problems++; }
 
+  // page transitions (user report: chart pixels mixed into the Positions page).
+  // A page reached straight from another page - through the incremental setScreen path,
+  // no invalidate - must be pixel-identical to a fresh render of the same state.
+  {
+    static const int tgts[] = {UI::SC_DASH, UI::SC_POS, UI::SC_REAL};
+    static const char *const tnm[] = {"dash", "pos", "real"};
+    static uint16_t tr[Cfg::SCR_W * Cfg::SCR_H];
+    for (int t = 0; t < 3; t++) {
+      build(a, S_NORMAL, NOW_CLOSED);
+      UI::setScreen(UI::SC_CHART);
+      for (int k = 0; k < 2; k++) { g_arduinoMs += 500; UI::update(); }
+      tft.boxes.clear();            // the ink audit covers the incoming page only
+      UI::setScreen(tgts[t]);
+      for (int k = 0; k < 2; k++) { g_arduinoMs += 500; UI::update(); }
+      memcpy(tr, tft.fb, sizeof tr);
+      char nm[48];
+      snprintf(nm, sizeof nm, "trans_%s_after_chart", tnm[t]);
+      dump(nm);
+      build(a, S_NORMAL, NOW_CLOSED);
+      UI::setScreen(tgts[t]);        // already the current screen: setScreen ignores it
+      snprintf(nm, sizeof nm, "trans_%s_fresh", tnm[t]);
+      showFrame(nm);
+      tft.oob = 0;
+      if (memcmp(tr, tft.fb, sizeof tr) != 0) { printf("  PROBLEM transition: chart -> %s leaves pixels\n", tnm[t]); g_problems++; }
+    }
+  }
+
   printf("%d frames, %d problems\n", g_frames, g_problems);
   return g_problems ? 1 : 0;
 }

@@ -1156,8 +1156,13 @@ void setScreen(int s) {
   Touch::setScreen(s);
   g_nSlots = 0;
   lastChipKey[0] = 0;
-  g_badgeLast = (MarketStatus)-1;  // content area was just wiped
-  tft.fillRect(0, Cfg::CONTENT_Y, Cfg::SCR_W, Cfg::CONTENT_H, BG);
+  g_badgeLast = (MarketStatus)-1;  // the whole screen is wiped and repainted below
+  // Full-screen wipe, not just the content band: the smooth TTF fonts leave anti-aliased
+  // pixels outside their nominal ink boxes, so a page's ink can bleed into the header and
+  // nav band. Clearing only the content band used to leave faint chart pixels on the
+  // Positions page after a rotation (user report, fw 1.3.4). One full fill at a page
+  // switch costs ~20 ms on the SPI bus - invisible, and it kills the whole bug class.
+  tft.fillScreen(BG);
   if (s == SC_DASH) drawDashStatics();
   else if (s == SC_POS) drawPosStatics();
   else if (s == SC_REAL) drawRealStatics();
